@@ -15,9 +15,9 @@ __pycache__/
 
 
 !examples/
-examples/*.exe
-examples/*.dll
-
+!examples/*.exe
+!examples/*.dll
+!examples/*.txt
 
 .vs/
 [Dd]ebug/

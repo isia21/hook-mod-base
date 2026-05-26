@@ -1,0 +1,111 @@
+Function name	Segment	Start	Length	Locals	Arguments	R	F	L	M	O	S	B	T	=
+GameEngine::PlayAmbientSound(void)	.text	00401160	0000001E	00000000		R	.	.	.	.	.	.	T	.
+GameEngine::RenderFrame(void)	.text	00401180	0000001E	00000000		R	.	.	.	.	.	.	T	.
+GameEngine::UpdateInput(void)	.text	00401140	0000001E	00000000		R	.	.	.	.	.	.	T	.
+IRenderSystem::`scalar deleting destructor'(uint)	.text	00401110	00000024	00000008	00000004	R	.	.	.	.	.	B	T	.
+IRenderSystem::~IRenderSystem(void)	.text	00401100	00000007	00000000		R	.	.	.	.	.	.	T	.
+NetworkTick(void)	.text	004011A0	0000001E	00000000		R	.	.	.	.	.	.	T	.
+RunNetworkLoop(void)	.text	004011C0	00000005	00000000		R	.	.	.	.	.	.	T	.
+_CxxThrowException(x,x)	.text	00402408	00000006	00000000	00000008	.	.	.	.	.	.	.	T	.
+_Thrd_sleep_for(x)	.text	004017DA	00000006	00000000	00000008	R	.	.	.	.	.	.	T	.
+__RTC_Initialize	.text	00401FF7	0000002C	00000008		R	.	.	.	.	.	.	T	.
+__RTC_Terminate	.text	00402023	0000002C	00000008		R	.	.	.	.	.	.	T	.
+__SEH_prolog4	.text	00402050	00000045	00000000	00000008	R	.	L	.	.	.	.	.	.
+___CxxFrameHandler3	.text	004023EA	00000006			R	.	.	.	.	.	.	.	.
+___current_exception	.text	0040240E	00000006			R	.	.	.	.	.	.	.	.
+___current_exception_context	.text	00402414	00000006			R	.	.	.	.	.	.	.	.
+___isa_available_init	.text	004020C4	0000031A	0000002C		R	.	.	.	.	.	B	T	.
+___local_stdio_printf_options	.text	00401F03	00000006	00000000		R	.	.	.	.	.	.	T	.
+___local_stdio_scanf_options	.text	00401F09	00000006	00000000		R	.	.	.	.	.	.	T	.
+___p___argc	.text	0040246E	00000006	00000000		R	.	.	.	.	.	.	T	.
+___p___argv	.text	00402474	00000006	00000000		R	.	.	.	.	.	.	T	.
+___p__commode	.text	00402498	00000006	00000000		R	.	.	.	.	.	.	T	.
+___report_gsfailure	.text	00401AA3	00000006	00000000		.	.	.	.	.	.	.	T	.
+___scrt_acquire_startup_lock	.text	00401C1A	00000032	00000004		R	.	.	.	.	.	.	T	.
+___scrt_fastfail	.text	00401F44	0000000A	00000004	00000004	.	.	.	.	.	.	B	T	.
+___scrt_get_dyn_tls_dtor_callback	.text	00401F3E	00000006	00000000		R	.	.	.	.	.	.	T	.
+___scrt_get_dyn_tls_init_callback	.text	00401F38	00000006	00000000		R	.	.	.	.	.	.	T	.
+___scrt_initialize_crt	.text	00401C4C	00000039	00000004	00000004	R	.	.	.	.	.	B	T	.
+___scrt_initialize_default_local_stdio_options	.text	00401F0F	0000001D	00000000		R	.	.	.	.	.	.	.	.
+___scrt_initialize_mta	.text	00401F4E	00000005	00000000		R	.	.	.	.	.	.	T	.
+___scrt_initialize_onexit_tables	.text	00401C85	00000086	00000004	00000004	R	.	.	.	.	.	B	T	.
+___scrt_initialize_winrt	.text	00401EC3	00000003	00000000	00000008	R	.	.	.	.	.	.	T	.
+___scrt_is_managed_app	.text	00401F53	00000042	00000000		R	.	.	.	.	.	.	T	.
+___scrt_is_nonwritable_in_current_image	.text	00401D0C	00000097	0000002C	00000004	R	.	.	.	.	.	B	T	.
+___scrt_is_ucrt_dll_in_use	.text	004023DE	0000000C	00000000		R	.	.	.	.	.	.	T	.
+___scrt_is_user_matherr_present	.text	00401F2C	0000000C	00000000		R	.	.	.	.	.	.	T	.
+___scrt_release_startup_lock	.text	00401DA3	0000001D	00000004	00000001	R	.	.	.	.	.	B	T	.
+___scrt_set_unhandled_exception_filter	.text	00401F95	0000000C	00000000		R	.	.	.	.	.	.	.	.
+___scrt_stub_for_acrt_initialize	.text	00401EDC	00000003	00000000	00000005	R	.	.	.	.	.	.	T	.
+___scrt_uninitialize_crt	.text	00401DC0	00000028	00000004	00000005	R	.	.	.	.	.	B	T	.
+___security_init_cookie	.text	00401E78	0000004B	00000008		R	.	.	.	.	.	.	T	.
+___setusermatherr	.text	00402438	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+___std_exception_copy	.text	004023FC	00000006			R	.	.	.	.	.	.	.	.
+___std_exception_destroy	.text	00402402	00000006			R	.	.	.	.	.	.	.	.
+__alldiv	.text	00402540	000000AA	0000000C	00000010	R	.	.	.	.	.	.	.	.
+__alldvrm	.text	004025F0	000000DF	0000000C	00000010	R	.	.	.	.	.	.	.	.
+__allmul	.text	004026D0	00000034	00000000	00000010	R	.	.	.	.	.	.	.	.
+__c_exit	.text	00402480	00000006	00000000		R	.	.	.	.	.	.	T	.
+__callnewh	.text	00402420	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__cexit	.text	0040247A	00000006	00000000		R	.	.	.	.	.	.	T	.
+__configthreadlocale	.text	0040248C	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__configure_narrow_argv	.text	0040243E	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__controlfp_s	.text	004024B6	00000006	00000000	0000000C	R	.	.	.	.	.	.	T	.
+__crt_atexit	.text	004024B0	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__except_handler4	.text	00402095	0000002F	00000008	00000010	R	.	.	.	.	.	B	T	.
+__except_handler4_common	.text	0040241A	00000006			R	.	.	.	.	.	.	.	.
+__exit	.text	00402462	00000006	00000000	00000004	.	.	.	.	.	.	.	T	.
+__filter_x86_sse2_floating_point_exception	.text	004024C2	00000077	00000008	00000004	R	.	.	.	.	.	B	T	.
+__get_entropy	.text	00401E2B	0000004D	00000018		R	.	.	.	.	.	B	T	.
+__get_initial_narrow_environment	.text	0040244A	00000006	00000000		R	.	.	.	.	.	.	T	.
+__get_startup_argv_mode	.text	00401EC6	00000004	00000000		R	.	.	.	.	.	.	T	.
+__get_startup_file_mode	.text	00401ECA	00000006	00000000		R	.	.	.	.	.	.	T	.
+__initialize_default_precision	.text	00401EDF	00000021	00000000		R	.	.	.	.	.	.	.	.
+__initialize_narrow_environment	.text	00402444	00000006	00000000		R	.	.	.	.	.	.	T	.
+__initialize_onexit_table	.text	004024A4	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__initterm	.text	00402450	00000006	00000000	00000008	R	.	.	.	.	.	.	T	.
+__initterm_e	.text	00402456	00000006	00000000	00000008	R	.	.	.	.	.	.	T	.
+__onexit	.text	00401DE8	0000002E	00000004	00000004	R	.	.	.	.	.	B	T	.
+__purecall	.text	004023F0	00000006			R	.	.	.	.	.	.	.	.
+__register_onexit_function	.text	004024AA	00000006	00000000	00000008	R	.	.	.	.	.	.	T	.
+__register_thread_local_exe_atexit_callback	.text	00402486	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__scrt_common_main_seh	.text	00401914	00000184	00000038		R	.	.	.	.	.	B	T	.
+__scrt_initialize_type_info(void)	.text	00401ED0	0000000C	00000000		R	.	.	.	.	.	.	T	.
+__scrt_throw_std_bad_alloc(void)	.text	00401B8B	0000001C	00000010		.	.	.	.	.	.	B	T	.
+__scrt_throw_std_bad_array_new_length(void)	.text	00401BA8	0000001C	00000010		.	.	.	.	.	.	B	T	.
+__scrt_unhandled_exception_filter(x)	.text	00401FA1	00000056	0000000C	00000004	R	.	.	.	.	.	B	T	.
+__security_check_cookie(x)	.text	004017E0	0000000E	00000000		R	.	L	.	.	.	.	T	.
+__seh_filter_exe	.text	0040242C	00000006	00000000	00000008	R	.	.	.	.	.	.	T	.
+__set_app_type	.text	00402432	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__set_fmode	.text	00402468	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+__set_new_mode	.text	00402492	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+_atexit	.text	00401E16	00000015	00000004	00000004	R	.	.	.	.	.	B	T	.
+_exit_0	.text	0040245C	00000006	00000000	00000004	.	.	.	.	.	.	.	T	.
+_free	.text	0040249E	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+_guard_check_icall_nop(x)	.text	00401F00	00000003	00000000		R	.	.	.	.	.	.	T	.
+_main	.text	004011D0	0000018E	00000020	00000008	.	.	.	.	.	.	B	T	.
+_mainCRTStartup	.text	00401A99	0000000A	00000000	00000008	R	.	L	.	.	.	.	T	.
+_malloc	.text	00402426	00000006	00000000	00000004	R	.	.	.	.	.	.	T	.
+_terminate	.text	004024BC	00000006			R	.	.	.	.	.	.	.	.
+find_pe_section	.text	00401BD8	00000042	00000008	00000008	R	.	.	.	.	.	B	T	.
+operator delete(void *)	.text	00401BD3	00000005	00000000	00000008	R	.	.	.	.	.	.	T	.
+operator delete(void *,uint)	.text	0040181E	0000000E	00000004	00000008	R	.	.	.	.	.	B	T	.
+operator new(uint)	.text	004017EE	00000030	00000004	00000004	R	.	.	.	.	.	B	T	.
+post_pgo_initialization	.text	004018FA	00000008	00000000		R	.	.	.	.	.	.	T	.
+pre_c_initialization	.text	0040184F	000000AA	00000000		R	.	.	.	.	.	.	T	.
+pre_cpp_initialization	.text	00401902	00000012	00000000		R	.	.	.	.	.	.	.	.
+std::bad_alloc::`vector deleting destructor'(uint)	.text	00401B5E	0000002D	00000008	00000004	R	.	.	.	.	.	B	T	.
+std::bad_alloc::bad_alloc(std::bad_alloc const &)	.text	00401AA9	0000001B	00000008	00000004	R	.	.	.	.	.	B	T	.
+std::bad_alloc::bad_alloc(void)	.text	00401AC4	0000001E	00000000		R	.	.	.	.	.	.	T	.
+std::bad_array_new_length::bad_array_new_length(std::bad_array_new_length const &)	.text	00401AE2	0000001B	00000008	00000004	R	.	.	.	.	.	B	T	.
+std::bad_array_new_length::bad_array_new_length(void)	.text	00401AFD	0000001E	00000000		R	.	.	.	.	.	.	T	.
+std::bad_array_new_length::~bad_array_new_length(void)	.text	00401B4D	00000011	00000000		R	.	.	.	.	.	.	T	.
+std::chrono::steady_clock::now(void)	.text	00401000	000000F9	00000020	00000004	R	.	.	.	.	.	B	T	.
+std::endl<char,std::char_traits<char>>(std::ostream &)	.text	00401550	0000002F	00000008	00000004	R	.	.	.	.	.	B	T	.
+std::exception::exception(std::exception const &)	.text	00401B1B	00000032	00000008	00000004	R	.	.	.	.	.	B	T	.
+std::exception::what(void)	.text	00401BC5	0000000E	00000000		R	.	.	.	.	.	.	T	.
+std::operator<<<std::char_traits<char>>(std::ostream &,char const *)	.text	00401330	0000024C	0000003C	00000008	R	.	.	.	.	.	B	T	.
+std::ostream::_Sentry_base::~_Sentry_base(void)	.text	00401790	00000067	00000014	00000008	R	.	.	.	.	.	B	T	.
+std::ostream::sentry::~sentry(void)	.text	00401720	00000093	00000018	00000008	R	.	.	.	.	.	B	T	.
+std::this_thread::sleep_for<__int64,std::ratio<1,1>>(std::chrono::duration<__int64,std::ratio<1,1>> const &)	.text	00401580	00000195	0000002C		R	.	.	.	.	.	B	T	.
+type_info::`scalar deleting destructor'(uint)	.text	0040182C	00000023	00000008	00000004	R	.	.	.	.	.	B	T	.
