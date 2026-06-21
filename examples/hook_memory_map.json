@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "image": {
+    "width": 1920,
+    "height": 1080,
+    "bytes_per_pixel": 0.00654417
+  },
+  "code": {
+    "start": "0x00401000",
+    "end": "0x00404502",
+    "size": 13570
+  },
+  "summary": {
+    "tracked_bytes": 19,
+    "range_count": 4
+  },
+  "ranges": [
+    {
+      "name": "GameEngine::UpdateInput",
+      "kind": "hook",
+      "hook_type": "jmp",
+      "address": "0x00401140",
+      "end": "0x00401145",
+      "size": 5,
+      "intersects_text": true,
+      "pixel_start": 48898,
+      "pixel_end": 49509
+    },
+    {
+      "name": "GameEngine::PlayAmbientSound",
+      "kind": "hook",
+      "hook_type": "jmp",
+      "address": "0x00401160",
+      "end": "0x00401165",
+      "size": 5,
+      "intersects_text": true,
+      "pixel_start": 53788,
+      "pixel_end": 54399
+    },
+    {
+      "name": "IRenderSystem::RenderFrame (VTable)",
+      "kind": "hook",
+      "hook_type": "vtable",
+      "address": "0x00403338",
+      "end": "0x0040333C",
+      "size": 4,
+      "intersects_text": true,
+      "pixel_start": 1377713,
+      "pixel_end": 1378172
+    },
+    {
+      "name": "Main -> RunNetworkLoop (Call Site)",
+      "kind": "hook",
+      "hook_type": "call",
+      "address": "0x0040130D",
+      "end": "0x00401312",
+      "size": 5,
+      "intersects_text": true,
+      "pixel_start": 119342,
+      "pixel_end": 119954
+    }
+  ]
+}

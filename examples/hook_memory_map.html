@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hook Memory Map</title>
+<style>
+:root { color-scheme: dark; --bg:#0f1115; --panel:#171a21; --panel2:#1f2430; --text:#e7edf7; --muted:#98a5b8; --line:#2a3140; --accent:#f09a2a; --accent2:#3ad975; }
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.4 Consolas, 'Courier New', monospace; background:radial-gradient(circle at top, #1c2230 0, #0f1115 45%, #090b10 100%); color:var(--text); }
+button, input { font:inherit; }
+.app { display:grid; grid-template-columns:360px 1fr; min-height:100vh; }
+.sidebar { border-right:1px solid var(--line); background:rgba(20,23,30,.94); padding:16px; overflow:auto; }
+.main { padding:16px; overflow:auto; }
+.h1 { font-size:20px; margin:0 0 8px; }
+.meta { color:var(--muted); margin-bottom:16px; }
+.search { width:100%; padding:10px 12px; background:#0f131a; color:var(--text); border:1px solid var(--line); border-radius:10px; margin-bottom:12px; }
+.stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
+.stat { padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+.stat .k { color:var(--muted); font-size:12px; }
+.stat .v { font-size:16px; margin-top:4px; }
+.legend { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; color:var(--muted); }
+.legend span::before { content:''; display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:middle; }
+.legend .l-vanilla::before { background:#181818; border:1px solid #2d2d2d; }
+.legend .l-hook::before { background:#f09a2a; }
+.legend .l-nop::before { background:#3ad975; }
+.legend .l-vtable::before { background:#00ffff; }
+.list { display:flex; flex-direction:column; gap:8px; }
+.item { padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); cursor:pointer; }
+.item:hover, .item.active { border-color:#5b6a82; background:var(--panel2); }
+.item .name { font-weight:700; margin-bottom:3px; word-break:break-word; }
+.item .sub { color:var(--muted); font-size:12px; }
+.viewer-shell { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#111; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+.viewer-toolbar { display:flex; align-items:center; gap:8px; padding:10px 12px; background:#131722; border-bottom:1px solid var(--line); }
+.viewer-toolbar button { padding:6px 10px; background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+.viewer-toolbar button:hover { border-color:#6d7b92; }
+.viewer-toolbar .grow { flex:1; color:var(--muted); }
+.viewer-viewport { position:relative; overflow:hidden; background:#0c0d11; cursor:grab; width:min(100%, 1920px); height:min(calc(100vh - 220px), 1080px); }
+.viewer-viewport.dragging { cursor:grabbing; }
+.viewer-stage { position:absolute; inset:0 auto auto 0; transform-origin:0 0; will-change:transform; }
+.viewer-stage img, .viewer-stage canvas { display:block; width:1920px; height:1080px; }
+.viewer-stage canvas { position:absolute; inset:0; }
+.details { margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--panel); min-height:96px; }
+.details .title { font-weight:700; margin-bottom:8px; }
+.details .row { color:var(--muted); margin:2px 0; word-break:break-word; }
+.hint { color:var(--muted); margin-top:10px; }
+@media (max-width:1100px) { .app { grid-template-columns:1fr; } .sidebar { border-right:0; border-bottom:1px solid var(--line); } .viewer-viewport { height:62vh; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+	<h1 class="h1">Hook Memory Map</h1>
+	<div class="meta" id="meta"></div>
+	<input class="search" id="search" placeholder="Filter by hook or function name">
+	<div class="stats">
+	  <div class="stat"><div class="k">Ranges</div><div class="v" id="statRanges"></div></div>
+	  <div class="stat"><div class="k">Tracked Bytes</div><div class="v" id="statBytes"></div></div>
+	  <div class="stat"><div class="k">Canvas</div><div class="v" id="statCanvas"></div></div>
+	  <div class="stat"><div class="k">Hovered</div><div class="v" id="statHovered">0</div></div>
+	</div>
+	<div class="legend">
+	  <span class="l-vanilla">vanilla</span>
+	  <span class="l-hook">hook entry</span>
+	  <span class="l-nop">nop owned</span>
+	  <span class="l-vtable">vtable</span>
+	</div>
+	<div class="list" id="list"></div>
+  </aside>
+  <main class="main">
+	<div class="viewer-shell">
+	  <div class="viewer-toolbar">
+		<button id="zoomOut" type="button">-</button>
+		<button id="zoomIn" type="button">+</button>
+		<button id="zoomReset" type="button">Reset</button>
+		<div class="grow" id="zoomLabel"></div>
+	  </div>
+	  <div class="viewer-viewport" id="viewport">
+		<div class="viewer-stage" id="stage">
+		  <img id="mapImage" alt="Hook memory map">
+		  <canvas id="overlay"></canvas>
+		</div>
+	  </div>
+	</div>
+	<div class="details" id="details">
+	  <div class="title">Selection</div>
+	  <div class="row">Click a range in the list or on the map.</div>
+	</div>
+	<div class="hint">Wheel to zoom. Drag to pan. Orange means entry hooks in code. Green means the code region is fully ours via NOP replacement.</div>
+  </main>
+</div>
+<script id="hook-data" type="application/json">{
+  "version": 1,
+  "image": {
+    "width": 1920,
+    "height": 1080,
+    "bytes_per_pixel": 0.00654417,
+    "bmp": "hook_memory_map.bmp"
+  },
+  "code": {
+    "start": "0x00401000",
+    "end": "0x00404502",
+    "size": 13570
+  },
+  "summary": {
+    "tracked_bytes": 19,
+    "range_count": 4
+  },
+  "ranges": [
+    {
+      "name": "GameEngine::UpdateInput",
+      "kind": "hook",
+      "hook_type": "jmp",
+      "address": "0x00401140",
+      "end": "0x00401145",
+      "size": 5,
+      "intersects_text": true,
+      "pixel_start": 48898,
+      "pixel_end": 49509
+    },
+    {
+      "name": "GameEngine::PlayAmbientSound",
+      "kind": "hook",
+      "hook_type": "jmp",
+      "address": "0x00401160",
+      "end": "0x00401165",
+      "size": 5,
+      "intersects_text": true,
+      "pixel_start": 53788,
+      "pixel_end": 54399
+    },
+    {
+      "name": "IRenderSystem::RenderFrame (VTable)",
+      "kind": "hook",
+      "hook_type": "vtable",
+      "address": "0x00403338",
+      "end": "0x0040333C",
+      "size": 4,
+      "intersects_text": true,
+      "pixel_start": 1377713,
+      "pixel_end": 1378172
+    },
+    {
+      "name": "Main -> RunNetworkLoop (Call Site)",
+      "kind": "hook",
+      "hook_type": "call",
+      "address": "0x0040130D",
+      "end": "0x00401312",
+      "size": 5,
+      "intersects_text": true,
+      "pixel_start": 119342,
+      "pixel_end": 119954
+    }
+  ]
+}</script>
+<script>
+const embeddedData = JSON.parse(document.getElementById('hook-data').textContent);
+const image = document.getElementById('mapImage');
+const canvas = document.getElementById('overlay');
+const ctx = canvas.getContext('2d');
+const list = document.getElementById('list');
+const details = document.getElementById('details');
+const search = document.getElementById('search');
+const statHovered = document.getElementById('statHovered');
+const meta = document.getElementById('meta');
+const viewport = document.getElementById('viewport');
+const stage = document.getElementById('stage');
+const zoomLabel = document.getElementById('zoomLabel');
+const zoomInButton = document.getElementById('zoomIn');
+const zoomOutButton = document.getElementById('zoomOut');
+const zoomResetButton = document.getElementById('zoomReset');
+
+let data = embeddedData;
+let filtered = [];
+let activeIndex = -1;
+let hoveredRanges = [];
+let zoom = 1;
+let panX = 0;
+let panY = 0;
+let isDragging = false;
+let dragMoved = false;
+let dragStartX = 0;
+let dragStartY = 0;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+async function loadData() {
+  try {
+	const response = await fetch('hook_memory_map.json', { cache: 'no-store' });
+	if (!response.ok) throw new Error('fetch failed');
+	data = await response.json();
+  } catch (error) {
+	data = embeddedData;
+  }
+}
+
+function decorateData() {
+  data.ranges.forEach((range, index) => {
+	range.index = index;
+	if (range.hook_type === 'vtable') {
+	  range.color = 'rgba(0,255,255,0.40)';
+	  range.stroke = '#00ffff';
+	} else if (range.kind === 'nop') {
+	  range.color = 'rgba(58,217,117,0.28)';
+	  range.stroke = '#3ad975';
+	} else {
+	  range.color = 'rgba(240,154,42,0.30)';
+	  range.stroke = '#f09a2a';
+	}
+  });
+  filtered = data.ranges.slice();
+}
+
+function pixelToRect(start, end) {
+  const width = data.image.width;
+  const x1 = start % width;
+  const y1 = Math.floor(start / width);
+  const x2 = end % width;
+  const y2 = Math.floor(end / width);
+  return { x1, y1, x2, y2 };
+}
+
+function resizeCanvas() {
+  canvas.width = data.image.width;
+  canvas.height = data.image.height;
+}
+
+function applyTransform() {
+  stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  zoomLabel.textContent = `${Math.round(zoom * 100)}% zoom`;
+}
+
+function centerView() {
+  const fitScale = Math.min(viewport.clientWidth / data.image.width, viewport.clientHeight / data.image.height);
+  zoom = Math.max(0.25, fitScale);
+  panX = (viewport.clientWidth - data.image.width * zoom) * 0.5;
+  panY = (viewport.clientHeight - data.image.height * zoom) * 0.5;
+  applyTransform();
+}
+
+function focusRange(range) {
+  if (!range.intersects_text) return;
+  const rect = pixelToRect(range.pixel_start, range.pixel_end);
+  const cx = (rect.x1 + rect.x2) * 0.5;
+  const cy = (rect.y1 + rect.y2) * 0.5;
+  panX = viewport.clientWidth * 0.5 - cx * zoom;
+  panY = viewport.clientHeight * 0.5 - cy * zoom;
+  applyTransform();
+}
+
+function drawRange(range, alphaBoost) {
+  if (!range.intersects_text) return;
+  const rect = pixelToRect(range.pixel_start, range.pixel_end);
+  ctx.fillStyle = range.color.replace(/0\.\d+\)/, `${alphaBoost})`);
+  if (rect.y1 === rect.y2) {
+	ctx.fillRect(rect.x1, rect.y1, Math.max(1, rect.x2 - rect.x1 + 1), 1);
+  } else {
+	ctx.fillRect(rect.x1, rect.y1, data.image.width - rect.x1, 1);
+	for (let y = rect.y1 + 1; y < rect.y2; y++) ctx.fillRect(0, y, data.image.width, 1);
+	ctx.fillRect(0, rect.y2, rect.x2 + 1, 1);
+  }
+}
+
+function renderOverlay(extraHovered = []) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  filtered.forEach(range => drawRange(range, range.index === activeIndex ? 0.55 : 0.18));
+  extraHovered.forEach(range => drawRange(range, 0.85));
+}
+
+function renderList() {
+  list.innerHTML = '';
+  filtered.slice(0, 500).forEach(range => {
+	const el = document.createElement('div');
+	el.className = 'item' + (range.index === activeIndex ? ' active' : '');
+	el.innerHTML = `<div class="name">${range.name || '(unnamed)'}</div><div class="sub">${range.kind} | ${range.hook_type} | ${range.address} | ${range.size} bytes</div>`;
+	el.onclick = () => {
+	  activeIndex = range.index;
+	  updateDetails([range]);
+	  renderList();
+	  renderOverlay();
+	  focusRange(range);
+	};
+	list.appendChild(el);
+  });
+}
+
+function updateStats() {
+  meta.textContent = `${data.code.start} - ${data.code.end} | ${data.code.size} bytes mapped`;
+  document.getElementById('statRanges').textContent = String(data.summary.range_count);
+  document.getElementById('statBytes').textContent = String(data.summary.tracked_bytes);
+  document.getElementById('statCanvas').textContent = `${data.image.width} x ${data.image.height}`;
+}
+
+function updateDetails(ranges) {
+  if (!ranges.length) {
+	details.innerHTML = '<div class="title">Selection</div><div class="row">Click a range in the list or on the map.</div>';
+	return;
+  }
+  const primary = ranges[0];
+  let html = `<div class="title">${primary.name || '(unnamed)'}</div>` +
+	`<div class="row">kind: ${primary.kind}</div>` +
+	`<div class="row">hook_type: ${primary.hook_type}</div>` +
+	`<div class="row">address: ${primary.address} .. ${primary.end}</div>` +
+	`<div class="row">size: ${primary.size} bytes</div>` +
+	`<div class="row">pixel: ${primary.pixel_start} .. ${primary.pixel_end}</div>`;
+  if (ranges.length > 1) {
+	html += `<div class="row">overlaps here: ${ranges.length}</div>`;
+	html += ranges.slice(1, 8).map(range => `<div class="row">also: ${range.name || '(unnamed)'} | ${range.address}</div>`).join('');
+  }
+  details.innerHTML = html;
+}
+
+function filterRanges(query) {
+  const q = query.trim().toLowerCase();
+  filtered = !q ? data.ranges.slice() : data.ranges.filter(range =>
+	(range.name || '').toLowerCase().includes(q) ||
+	range.address.toLowerCase().includes(q) ||
+	range.kind.includes(q) ||
+	range.hook_type.includes(q)
+  );
+  renderList();
+  renderOverlay(hoveredRanges);
+}
+
+function eventToImagePixel(event) {
+  const rect = viewport.getBoundingClientRect();
+  const x = (event.clientX - rect.left - panX) / zoom;
+  const y = (event.clientY - rect.top - panY) / zoom;
+  return {
+	x: Math.floor(x),
+	y: Math.floor(y),
+	inside: x >= 0 && y >= 0 && x < data.image.width && y < data.image.height
+  };
+}
+
+function findRangesAtEvent(event) {
+  const point = eventToImagePixel(event);
+  if (!point.inside) return [];
+  const pixel = point.y * data.image.width + point.x;
+  return filtered.filter(range => range.intersects_text && pixel >= range.pixel_start && pixel <= range.pixel_end);
+}
+
+viewport.addEventListener('mousemove', event => {
+  if (isDragging) {
+	const nextPanX = event.clientX - dragStartX;
+	const nextPanY = event.clientY - dragStartY;
+	dragMoved = dragMoved || Math.abs(nextPanX - panX) > 1 || Math.abs(nextPanY - panY) > 1;
+	panX = nextPanX;
+	panY = nextPanY;
+	applyTransform();
+	return;
+  }
+  hoveredRanges = findRangesAtEvent(event);
+  statHovered.textContent = String(hoveredRanges.length);
+  renderOverlay(hoveredRanges);
+  updateDetails(hoveredRanges.length ? hoveredRanges : (activeIndex >= 0 ? data.ranges.filter(r => r.index === activeIndex) : []));
+});
+
+viewport.addEventListener('mouseleave', () => {
+  if (isDragging) return;
+  hoveredRanges = [];
+  statHovered.textContent = '0';
+  renderOverlay();
+  updateDetails(activeIndex >= 0 ? data.ranges.filter(r => r.index === activeIndex) : []);
+});
+
+viewport.addEventListener('mousedown', event => {
+  isDragging = true;
+  dragMoved = false;
+  viewport.classList.add('dragging');
+  dragStartX = event.clientX - panX;
+  dragStartY = event.clientY - panY;
+});
+
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  viewport.classList.remove('dragging');
+});
+
+viewport.addEventListener('click', event => {
+  if (dragMoved) return;
+  const clicked = findRangesAtEvent(event);
+  if (!clicked.length) return;
+  activeIndex = clicked[0].index;
+  updateDetails(clicked);
+  renderList();
+  renderOverlay(clicked);
+});
+
+viewport.addEventListener('wheel', event => {
+  event.preventDefault();
+  const rect = viewport.getBoundingClientRect();
+  const beforeX = (event.clientX - rect.left - panX) / zoom;
+  const beforeY = (event.clientY - rect.top - panY) / zoom;
+  const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const nextZoom = clamp(zoom * factor, 0.2, 24);
+  panX = event.clientX - rect.left - beforeX * nextZoom;
+  panY = event.clientY - rect.top - beforeY * nextZoom;
+  zoom = nextZoom;
+  applyTransform();
+}, { passive: false });
+
+zoomInButton.addEventListener('click', () => {
+  zoom = clamp(zoom * 1.2, 0.2, 24);
+  applyTransform();
+});
+zoomOutButton.addEventListener('click', () => {
+  zoom = clamp(zoom / 1.2, 0.2, 24);
+  applyTransform();
+});
+zoomResetButton.addEventListener('click', centerView);
+search.addEventListener('input', event => filterRanges(event.target.value));
+window.addEventListener('resize', () => { if (zoom <= 1.01) centerView(); else applyTransform(); });
+
+async function init() {
+  await loadData();
+  decorateData();
+  updateStats();
+  image.src = data.image.bmp;
+  image.addEventListener('load', () => {
+	resizeCanvas();
+	centerView();
+	renderList();
+	renderOverlay();
+  }, { once: true });
+}
+
+init();
+</script>
+</body>
+</html>

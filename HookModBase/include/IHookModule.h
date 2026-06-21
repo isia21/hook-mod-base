@@ -69,6 +69,19 @@ struct HijackedFunction
 class HookTracker
 {
 public:
+
+    struct MemoryRange
+    {
+        uintptr_t address;
+        size_t size;
+        HookType type;
+        bool isNop;
+        std::string name;
+    };
+
+
+    void CollectMemoryRanges(std::vector<MemoryRange>& ranges) const;
+
     /// <summary>
     /// Устанавливает хук и затирает (NOP) связанные с ним оригинальные функции.
     /// </summary>
@@ -110,6 +123,7 @@ public:
     void PrintSummary() const;
 
 private:
+
     /// <summary>
     /// Внутренняя структура для хранения затертых NOP-ами областей памяти.
     /// </summary>
@@ -117,6 +131,7 @@ private:
     {
         uintptr_t address;
         std::vector<uint8_t> originalBytes;
+        std::string name;
     };
 
     /// <summary>
@@ -168,6 +183,7 @@ public:
     /// <returns>Суммарное количество измененных байт памяти модуля.</returns>
     size_t GetReplacedBytes() const { return m_tracker.GetTotalInterceptedBytes(); }
 
+    void CollectHookMemoryRanges(std::vector<HookTracker::MemoryRange>& ranges) const { m_tracker.CollectMemoryRanges(ranges); }
 protected:
     /// <summary>
     /// Встроенный трекер хуков, доступный во всех модулях-наследниках.

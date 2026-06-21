@@ -121,7 +121,7 @@ namespace MemoryEx
 		WriteMemoryBYTES(uAddress, ExecLine, 5);
 	}
 
-	void WriteInstruction(INT32 Address, INT32 NewAddress, INT32 NopZone, INT8 Instruction)
+	void WriteInstruction(uintptr_t Address, uintptr_t NewAddress, size_t NopZone, uint8_t Instruction)
 	{
 		DWORD OLDPROTECT;
 		CHAR* MyAddress = (CHAR*)Address;
@@ -205,7 +205,7 @@ namespace MemoryEx
 		WriteMemoryBYTES(uAddress, ExecLine, 6);
 	}
 
-	void ReadMemoryBYTES(INT32 uAddress, void* bytes, INT32 len)
+	void ReadMemoryBYTES(uintptr_t uAddress, void* bytes, size_t  len)
 	{
 		/*unsigned long protect[2];
 		VirtualProtect(reinterpret_cast<LPVOID>(uAddress), len, PAGE_EXECUTE_READWRITE, &protect[0]);*/
@@ -220,68 +220,68 @@ namespace MemoryEx
 		//VirtualProtect((LPVOID)uAddress, len, flOldProtect, &flOldProtect);
 	}
 
-	void ReadMemoryQWORD(INT32 Address, INT64* Value) { ReadMemoryBYTES(Address, Value, 8); }
-	void ReadMemoryDWORD(INT32 Address, INT32* Value) { ReadMemoryBYTES(Address, Value, 4); }
-	void ReadMemoryWORD(INT32 Address, INT16* Value) { ReadMemoryBYTES(Address, Value, 2); }
-	void ReadMemoryBYTE(INT32 Address, INT8* Value) { ReadMemoryBYTES(Address, Value, 1); }
-	INT64 ReadMemoryQWORD(INT32 Address)
+	void ReadMemoryQWORD(uintptr_t Address, uint64_t* Value) { ReadMemoryBYTES(Address, Value, 8); }
+	void ReadMemoryDWORD(uintptr_t Address, uint32_t* Value) { ReadMemoryBYTES(Address, Value, 4); }
+	void ReadMemoryWORD(uintptr_t Address, uint16_t* Value) { ReadMemoryBYTES(Address, Value, 2); }
+	void ReadMemoryBYTE(uintptr_t Address, uint8_t* Value) { ReadMemoryBYTES(Address, Value, 1); }
+	uint64_t ReadMemoryQWORD(uintptr_t Address)
 	{
-		INT64 result = 0;
+		uint64_t result = 0;
 		ReadMemoryQWORD(Address, &result);
 		return result;
 	}
-	INT32 ReadMemoryDWORD(INT32 Address)
+	uint32_t ReadMemoryDWORD(uintptr_t Address)
 	{
-		INT32 result = 0;
+		uint32_t result = 0;
 		ReadMemoryDWORD(Address, &result);
 		return result;
 	}
-	INT16 ReadMemoryWORD(INT32 Address)
+	uint16_t ReadMemoryWORD(uintptr_t Address)
 	{
-		INT16 result = 0;
+		uint16_t result = 0;
 		ReadMemoryWORD(Address, &result);
 		return result;
 	}
-	INT8 ReadMemoryBYTE(INT32 Address)
+	uint8_t ReadMemoryBYTE(uintptr_t Address)
 	{
-		INT8 result = 0;
+		uint8_t result = 0;
 		ReadMemoryBYTE(Address, &result);
 		return result;
 	}
 
-	void ChangeMemoryQWORD(INT32 Address, INT64 value)
+	void ChangeMemoryQWORD(uintptr_t Address, uint64_t value)
 	{
-		INT64 old;
+		uint64_t old;
 		ReadMemoryQWORD(Address, &old);
 		WriteMemoryQWORD(Address, old + value);
 	}
 
-	void ChangeMemoryDWORD(INT32 Address, INT32 value)
+	void ChangeMemoryDWORD(uintptr_t Address, uint32_t value)
 	{
-		INT32 old;
+		uint32_t old;
 		ReadMemoryDWORD(Address, &old);
 		WriteMemoryDWORD(Address, old + value);
 	}
 
-	void ChangeMemoryWORD(INT32 Address, INT16 value)
+	void ChangeMemoryWORD(uintptr_t Address, uint16_t value)
 	{
-		INT16 old;
+		uint16_t old;
 		ReadMemoryWORD(Address, &old);
 		WriteMemoryWORD(Address, old + value);
 	}
 
-	void ChangeMemoryBYTE(INT32 Address, INT8 value)
+	void ChangeMemoryBYTE(uintptr_t Address, uint8_t value)
 	{
-		INT8 old;
+		uint8_t old;
 		ReadMemoryBYTE(Address, &old);
 		WriteMemoryBYTE(Address, old + value);
 	}
 
-	INT32 ReadRIPPointer(INT32 address, int instructionSize, int addrPosition)
+	uintptr_t ReadRIPPointer(uintptr_t address, int instructionSize, int addrPosition)
 	{
-		INT32 RIPPointer;
-		INT32 result;
-		INT8 instruction;
+		uintptr_t RIPPointer;
+		uintptr_t result;
+		uint8_t instruction;
 
 		ReadMemoryBYTE(address, &instruction);
 		if (instruction == 0xE9)
@@ -297,12 +297,12 @@ namespace MemoryEx
 		return result;
 	}
 
-	INT32 ReadJumpAddress(INT32 address)
+	uintptr_t ReadJumpAddress(uintptr_t address)
 	{
 		return ReadRIPPointer(address, 5, 1);
 	}
 
-	INT32 WriteDirectJMP(INT32 address, INT32 newFunc)
+	INT32 WriteDirectJMP(uintptr_t address, INT32 newFunc)
 	{
 		LONG_PTR realNewFunc = ReadJumpAddress(newFunc);
 
@@ -340,16 +340,16 @@ namespace MemoryEx
 		return true;
 	}
 
-	void* VtableHook(void* instance, void* hook, int lMethodIndex) {
-		intptr_t vtable = *static_cast<intptr_t*>(instance);
+	void* VtableHook(void* instance, void* hook, size_t lMethodIndex) {
+		uintptr_t vtable = *static_cast<uintptr_t*>(instance);
 		return VtableHook(vtable, hook, lMethodIndex);
 	}
-	void* VtableHook(intptr_t addres, void* hook, int lMethodIndex) {
-		intptr_t vtable = addres;
-		intptr_t entry = vtable + sizeof(int) * (lMethodIndex - 1);
-		intptr_t original = *reinterpret_cast<intptr_t*>(entry);
+	void* VtableHook(uintptr_t addres, void* hook, size_t lMethodIndex) {
+		uintptr_t vtable = addres;
+		uintptr_t entry = vtable + sizeof(int) * (lMethodIndex - 1);
+		uintptr_t original = *reinterpret_cast<uintptr_t*>(entry);
 
-		*reinterpret_cast<intptr_t*>(entry) = reinterpret_cast<intptr_t>(hook);
+		*reinterpret_cast<uintptr_t*>(entry) = reinterpret_cast<uintptr_t>(hook);
 
 		return reinterpret_cast<void*>(original);
 	}

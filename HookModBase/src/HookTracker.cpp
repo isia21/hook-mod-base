@@ -239,6 +239,16 @@ void HookTracker::RestoreAll()
     m_totalBytes = 0;
 }
 
+void HookTracker::CollectMemoryRanges(std::vector<MemoryRange>& ranges) const
+{
+    for (const auto& record : m_records)
+    {
+        ranges.push_back({ record.address, record.originalHookBytes.size(), record.type, false, record.name });
+
+        for (const auto& nop : record.savedNops)
+            ranges.push_back({ nop.address, nop.originalBytes.size(), HookType::Jmp, true, nop.name });
+    }
+}
 void HookTracker::PrintSummary() const
 {
     if (m_records.empty()) return;

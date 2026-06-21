@@ -3,6 +3,6 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="HookModBase/HookModBase.vcxproj" />
-  <Project Path="TargetApp/TargetApp.vcxproj" />
+  <Project Path="HookModBase/HookModBase.vcxproj" Id="8f08e266-e27c-49be-b7c6-581ff4e31aec" />
+  <Project Path="TargetApp/TargetApp.vcxproj" Id="56661209-c270-44c1-8583-e8efdae60831" />
 </Solution>
