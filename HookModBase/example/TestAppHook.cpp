@@ -3,6 +3,87 @@
 #include "../include/MemoryEx.h"
 #include "../include/Utils.h"
 
+#if defined(_WIN64)
+#include <cstdio>
+
+/// <summary>Проверяет установку и откат хуков на коде и таблице собственного стенда.</summary>
+static bool VerifyDemoHooks(uintptr_t nBaseAddress)
+{
+	using TDemoFunction = int (*)();
+	const uintptr_t nCallEntry = nBaseAddress;
+	const uintptr_t nCallAddress = nCallEntry + 4;
+	const uintptr_t nJmpAddress = nBaseAddress + 32;
+	const uintptr_t nOriginalAddress = nBaseAddress + 64;
+	const uintptr_t nReplacementAddress = nBaseAddress + 80;
+	const uintptr_t nVtableAddress = nBaseAddress + 96;
+
+	// CALL получает shadow space по соглашению Win64.
+	const uint8_t achCall[] = { 0x48, 0x83, 0xEC, 0x28, 0xE8, 0, 0, 0, 0, 0x48, 0x83, 0xC4, 0x28, 0xC3 };
+	const uint8_t achOriginal[] = { 0xB8, 1, 0, 0, 0, 0xC3 };
+	const uint8_t achReplacement[] = { 0xB8, 2, 0, 0, 0, 0xC3 };
+	const uintptr_t anVtable[] = { nOriginalAddress, nOriginalAddress };
+	MemoryEx::WriteMemoryBYTES(nCallEntry, achCall, sizeof(achCall));
+	MemoryEx::WriteMemoryBYTES(nOriginalAddress, achOriginal, sizeof(achOriginal));
+	MemoryEx::WriteMemoryBYTES(nReplacementAddress, achReplacement, sizeof(achReplacement));
+	MemoryEx::WriteMemoryBYTES(nVtableAddress, anVtable, sizeof(anVtable));
+	MemoryEx::WriteInstructionCall(nCallAddress, nOriginalAddress);
+	MemoryEx::WriteInstructionJmp(nJmpAddress, nOriginalAddress);
+
+	auto pfnCall = reinterpret_cast<TDemoFunction>(nCallEntry);
+	auto pfnJmp = reinterpret_cast<TDemoFunction>(nJmpAddress);
+	const uintptr_t nVtableSlot = nVtableAddress + sizeof(uintptr_t);
+	auto CallVtableSlot = [nVtableSlot]() {
+		uintptr_t nMethodAddress = 0;
+		MemoryEx::ReadMemoryBYTES(nVtableSlot, &nMethodAddress, sizeof(nMethodAddress));
+		return reinterpret_cast<TDemoFunction>(nMethodAddress)();
+	};
+	if (pfnCall() != 1 || pfnJmp() != 1 || CallVtableSlot() != 1) {
+		return false;
+	}
+
+	HookTracker stTracker;
+	const uintptr_t nFarAddress = nJmpAddress > 0x90000000ULL ? 1 : nJmpAddress + 0x90000000ULL;
+	bool bRejected = false;
+	try {
+		stTracker.InstallHook({ { nVtableSlot, HookType::VTable }, { nJmpAddress, HookType::Jmp, nFarAddress } },
+			nReplacementAddress, "x64 invalid target");
+	}
+	catch (const std::invalid_argument&) {
+		bRejected = true;
+	}
+	if (!bRejected || stTracker.GetTotalInterceptedBytes() != 0 || CallVtableSlot() != 1 || pfnJmp() != 1) {
+		return false;
+	}
+
+	stTracker.InstallHook({ { nCallAddress, HookType::Call }, { nJmpAddress, HookType::Jmp } },
+		nReplacementAddress, "x64 branches");
+	stTracker.InstallHook(nVtableSlot, HookType::VTable, nReplacementAddress, "x64 VTable");
+	const bool bPatched = pfnCall() == 2 && pfnJmp() == 2 && CallVtableSlot() == 2 &&
+		stTracker.GetTotalInterceptedBytes() == 10 + sizeof(uintptr_t);
+	stTracker.RestoreAll();
+	return bPatched && pfnCall() == 1 && pfnJmp() == 1 && CallVtableSlot() == 1;
+}
+
+extern "C" __declspec(dllexport) BOOL WINAPI RunHookModBaseDemo()
+{
+	void* pBuffer = VirtualAlloc(nullptr, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if (!pBuffer) {
+		return FALSE;
+	}
+
+	bool bPassed = false;
+	try {
+		bPassed = VerifyDemoHooks(reinterpret_cast<uintptr_t>(pBuffer));
+	}
+	catch (const std::exception& stError) {
+		std::fprintf(stderr, "[DLL] x64 demo: %s\n", stError.what());
+	}
+	VirtualFree(pBuffer, 0, MEM_RELEASE);
+	return bPassed ? TRUE : FALSE;
+}
+
+#else
+
 // =================================================================================
 // НАШИ ФУНКЦИИ-ЗАМЕНЫ (ДЕТУРЫ)
 // =================================================================================
@@ -98,3 +179,5 @@ void TestAppHook::Shutdown()
     Utils::ODS("[TestAppHook] Restoring all memory to original state...");
     m_tracker.RestoreAll();
 }
+
+#endif

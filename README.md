@@ -46,7 +46,7 @@ To keep the codebase lightweight and highly readable, the following design trade
 ### Repository Structure
 
 ```text
-├── HookModBase.sln                 # MSBuild Solution
+├── HookModBase.slnx                 # MSBuild Solution
 ├── HookModBase/                    # DLL Project (Dynamic Library)
 │   ├── include/                    # SDK Header files
 │   ├── src/                        # Core SDK Implementation
@@ -60,7 +60,7 @@ To keep the codebase lightweight and highly readable, the following design trade
 
 ### Quick Start
 
-1.  Open `HookModBase.sln` in Visual Studio (configured for **Release | x86**).
+1.  Open `HookModBase.slnx` in Visual Studio (configured for **Release | x86**).
 2.  Build the solution.
 3.  Navigate to the output directory containing:
    - TargetApp.exe
@@ -103,6 +103,19 @@ public:
 
 ---
 
+## Профиль сборки и новые режимы
+
+- Windows 10 и новее. Решение `HookModBase.slnx` использует MSVC v145, Windows SDK 10.0 и C++20. Поддерживаются x86 и x64.
+- В x64 собери Release и запусти заново собранный `TargetApp.exe` рядом с `HookModBase.dll`. Стенд проверяет `Call`, `Jmp`, `VTable`, откат и отказ для дальней цели. При успехе выводит `x64 demo passed` и завершается с кодом 0.
+- В x86 фиксированные RVA в `TestAppHook` соответствуют `examples/TargetApp.exe`. Для другой сборки x86-стенда адреса нужно сверить.
+- `VTable` записывает слот нативной ширины. На x64 для `Call`, `Jmp` и `BreakOnEntry` цель должна помещаться в знаковое смещение `rel32` от конца пятибайтовой инструкции. Проверка выполняется до изменения байтов группы.
+- Действуют настройки CRT из проектов Visual Studio. Код использует STL, RAII и исключения.
+- `HookType::Push` заменяет операнд существующей инструкции `PUSH imm32` в x86 и отображается как `push` в карте. Попытка установки на x64 отклоняется. Старые помощники MemoryEx с абсолютными 32-битными операндами остаются предназначенными для x86.
+- `HijackedFunction` принимает полуоткрытый диапазон `[start, end)` с `end > start`. Для задания длины передайте в качестве конца `start + size` после проверки сложения.
+- Строчные имена `call`, `jmp`, `dd`, `vtable` и `push` доступны в `HookType`.
+- HTML-карта и JSON помечают зазоры из `0xCC` как возможное выравнивание, а зазоры короче 16 байт — как короткие. Порог можно задать через `HookManager::InitAll(X)`. Ноль отключает пометку коротких зазоров. Пометки не учитываются как изменённые байты и не попадают в скрипты IDA.
+- По умолчанию трекер заполняет диапазоны NOP. Передайте `NopMode::BreakOnEntry` последним аргументом `InstallHook`, чтобы ловить вход через начало диапазона длиной от пяти байт.
+
 ## Русский
 
 **HookModBase** — это легковесный, структурированный шаблон C++ DLL, разработанный для задач реверс-инжиниринга, отладки и создания игровых модификаций.
@@ -144,7 +157,7 @@ public:
 ### Структура репозитория
 
 ```text
-├── HookModBase.sln                 # Файл решения MSBuild (Visual Studio)
+├── HookModBase.slnx                 # Файл решения MSBuild (Visual Studio)
 ├── HookModBase/                    # Проект DLL (Динамическая библиотека)
 │   ├── include/                    # Заголовочные файлы SDK
 │   ├── src/                        # Исходный код ядра SDK
@@ -158,7 +171,7 @@ public:
 
 ### Быстрый старт
 
-1.  Откройте файл `HookModBase.sln` в Visual Studio (рекомендуется конфигурация **Release | x86**).
+1.  Откройте файл `HookModBase.slnx` в Visual Studio (рекомендуется конфигурация **Release | x86**).
 2.  Соберите решение (Build Solution).
 3.  Перейдите в каталог сборки, содержащий:
    - TargetApp.exe

@@ -3,6 +3,72 @@
 #include "../include/Utils.h"
 #include "../include/SymbolResolver.h"
 
+static constexpr size_t NOP_TRAP_SIZE = 5;
+
+/// <summary>Сообщает о входе в затёртый диапазон и останавливает отладчик.</summary>
+static void __cdecl NopError()
+{
+	Utils::Message("Execution entered a NOP range. Check the call stack at the breakpoint.");
+	__debugbreak();
+}
+
+/// <summary>Проверяет дальность перехода или опкод и разрядность PUSH.</summary>
+static void ValidateHookTarget(uintptr_t nAddress, uintptr_t nMethodAddress, HookType eType)
+{
+	if (eType == HookType::Call || eType == HookType::Jmp) {
+		uint32_t dwDisplacement = 0;
+		if (!MemoryEx::TryGetRel32(nAddress, nMethodAddress, dwDisplacement)) {
+			throw std::invalid_argument("Hook target is outside rel32 reach");
+		}
+		return;
+	}
+	if (eType != HookType::Push) {
+		return;
+	}
+	if (sizeof(uintptr_t) != sizeof(uint32_t)) {
+		throw std::invalid_argument("HookType::Push requires an x86 process");
+	}
+
+	uint8_t byOpcode = 0;
+	MemoryEx::ReadMemoryBYTES(nAddress, &byOpcode, sizeof(byOpcode));
+	if (byOpcode != 0x68) {
+		throw std::invalid_argument("HookType::Push requires an existing PUSH imm32");
+	}
+}
+
+/// <summary>Проверяет границы и достижимость обработчика до записи патчей.</summary>
+static void ValidateNopRanges(const std::vector<HijackedFunction>& vecFunctions, NopMode eNopMode)
+{
+	for (const auto& func : vecFunctions) {
+		const bool bValid = func.end_address > func.start_address &&
+			func.size == func.end_address - func.start_address;
+		assert(bValid && "Invalid NOP range");
+		if (!bValid) {
+			throw std::invalid_argument("Invalid NOP range");
+		}
+
+		if (eNopMode == NopMode::BreakOnEntry && func.size >= NOP_TRAP_SIZE) {
+			uint32_t dwDisplacement = 0;
+			const uintptr_t nHandlerAddress = reinterpret_cast<uintptr_t>(&NopError);
+			if (!MemoryEx::TryGetRel32(func.start_address, nHandlerAddress, dwDisplacement)) {
+				throw std::invalid_argument("NOP trap handler is outside CALL rel32 reach");
+			}
+		}
+	}
+}
+
+/// <summary>Заполняет диапазон NOP и при необходимости ставит ловушку на входе.</summary>
+static void WriteNopRange(const HijackedFunction& stFunction, NopMode eNopMode)
+{
+	if (eNopMode == NopMode::BreakOnEntry && stFunction.size >= NOP_TRAP_SIZE) {
+		MemoryEx::WriteInstructionCall(stFunction.start_address, reinterpret_cast<uintptr_t>(&NopError),
+			stFunction.end_address);
+	}
+	else {
+		MemoryEx::NOPMemory(stFunction.start_address, stFunction.size);
+	}
+}
+
 /// <summary>
 /// Вспомогательная локальная функция для простого объединения вектора строк через разделитель.
 /// </summary>
@@ -48,174 +114,184 @@ static std::string join_resolved_multiline(const std::vector<uintptr_t>& vec, co
     return result;
 }
 
-void HookTracker::InstallHook(uintptr_t src_addr, HookType type, uintptr_t our_method, const std::string& method_name, const std::vector<HijackedFunction>& hijacked_funcs)
+void HookTracker::InstallHook(uintptr_t nAddress, HookType eType, uintptr_t nMethodAddress,
+	const std::string& strName, const std::vector<HijackedFunction>& vecFunctions, NopMode eNopMode)
 {
-    HookRecord record;
-    record.address = src_addr;
-    record.type = type;
-    record.name = method_name;
-    record.totalBytesIntercepted = 0;
+	ValidateHookTarget(nAddress, nMethodAddress, eType);
+	ValidateNopRanges(vecFunctions, eNopMode);
 
-    // 1. Вычисляем размер изменяемой области для базовой установки хука.
-    // Call и Jmp на x86 занимают 5 байт. Подмена слота VTable занимает 4 байта.
-    size_t hookSize = (type == HookType::VTable) ? 4 : 5;
-    size_t hijacked_bytes_total = 0;
+	HookRecord stRecord;
+	stRecord.address = nAddress;
+	stRecord.type = eType;
+	stRecord.name = strName;
+	stRecord.totalBytesIntercepted = 0;
 
-    for (const auto& func : hijacked_funcs) {
-        hijacked_bytes_total += func.size;
-    }
-    record.totalBytesIntercepted = hookSize + hijacked_bytes_total;
+	// 1. Вычисляем размер изменяемой области для базовой установки хука.
+	// VTable хранит адрес нативной ширины. Инструкции занимают пять байт.
+	const size_t nHookSize = (eType == HookType::VTable) ? sizeof(uintptr_t) : 5;
+	size_t nHijackedBytes = 0;
 
-    // 2. Читаем и сохраняем оригинальные байты хука для отката в будущем
-    record.originalHookBytes.resize(hookSize);
-    MemoryEx::ReadMemoryBYTES(src_addr, record.originalHookBytes.data(), hookSize);
+	for (const auto& stFunction : vecFunctions) {
+		nHijackedBytes += stFunction.size;
+	}
+	stRecord.totalBytesIntercepted = nHookSize + nHijackedBytes;
 
-    // 3. Записываем команду перехода (устанавливаем хук)
-    switch (type)
-    {
-    case HookType::Call:
-        MemoryEx::WriteInstructionCall(src_addr, our_method, 0);
-        break;
-    case HookType::Jmp:
-        MemoryEx::WriteInstructionJmp(src_addr, our_method, 0);
-        break;
-    case HookType::VTable:
-        MemoryEx::WriteMemoryDWORD(src_addr, static_cast<uint32_t>(our_method));
-        break;
-    }
+	// 2. Читаем и сохраняем оригинальные байты хука для отката в будущем
+	stRecord.originalHookBytes.resize(nHookSize);
+	MemoryEx::ReadMemoryBYTES(nAddress, stRecord.originalHookBytes.data(), nHookSize);
 
-    // Логируем установку основной точки входа
-    Utils::ODS("- [HOOK] %s @ 0x%08X (Total hijacked: %zu bytes)", method_name.c_str(), src_addr, record.totalBytesIntercepted);
+	// 3. Записываем команду перехода (устанавливаем хук)
+	switch (eType) {
+	case HookType::Call:
+		MemoryEx::WriteInstructionCall(nAddress, nMethodAddress, 0);
+		break;
+	case HookType::Jmp:
+		MemoryEx::WriteInstructionJmp(nAddress, nMethodAddress, 0);
+		break;
+	case HookType::VTable:
+		MemoryEx::WriteMemoryBYTES(nAddress, &nMethodAddress, sizeof(nMethodAddress));
+		break;
+	case HookType::Push:
+		MemoryEx::WriteInstructionPushImm32(nAddress, static_cast<uint32_t>(nMethodAddress));
+		break;
+	}
 
-    // 4. Обрабатываем и затираем (NOP) оригинальные вызовы функций, которые теперь не нужны
-    for (const auto& func : hijacked_funcs)
-    {
-        if (func.size == 0) continue;
+	// Логируем установку основной точки входа
+	Utils::ODS("- [HOOK] %s @ 0x%08X (Total hijacked: %zu bytes)", strName.c_str(), nAddress, stRecord.totalBytesIntercepted);
 
-        // Выводим древовидную схему NOP-регионов
-        Utils::ODS("  %s- [NOP] %s @ 0x%08X-0x%08X (%zu bytes)",
-            &func == &hijacked_funcs.back() ? "\\_" : "|-",
-            func.name.c_str(),
-            func.start_address,
-            func.end_address,
-            func.size);
+	// 4. Обрабатываем и затираем (NOP) оригинальные вызовы функций, которые теперь не нужны
+	for (const auto& stFunction : vecFunctions) {
+		// Выводим древовидную схему NOP-регионов
+		Utils::ODS("  %s- [NOP] %s @ 0x%08X-0x%08X (%zu bytes)",
+			&stFunction == &vecFunctions.back() ? "\\_" : "|-",
+			stFunction.name.c_str(),
+			stFunction.start_address,
+			stFunction.end_address,
+			stFunction.size);
 
-        SavedNop savedNop;
-        savedNop.address = func.start_address;
-        savedNop.originalBytes.resize(func.size);
+		SavedNop stSavedNop;
+		stSavedNop.address = stFunction.start_address;
+		stSavedNop.name = stFunction.name;
+		stSavedNop.originalBytes.resize(stFunction.size);
 
-        // Безопасно сохраняем затираемые байты оригинального кода
-        MemoryEx::ReadMemoryBYTES(func.start_address, savedNop.originalBytes.data(), func.size);
+		// Безопасно сохраняем затираемые байты оригинального кода
+		MemoryEx::ReadMemoryBYTES(stFunction.start_address, stSavedNop.originalBytes.data(), stFunction.size);
 
-        // Очищаем область памяти инструкциями NOP
-        MemoryEx::NOPMemory(func.start_address, func.size);
+		// Заполняем диапазон в выбранном режиме.
+		WriteNopRange(stFunction, eNopMode);
 
-        record.savedNops.push_back(std::move(savedNop));
-    }
+		stRecord.savedNops.push_back(std::move(stSavedNop));
+	}
 
-    m_totalBytes += record.totalBytesIntercepted;
-    m_records.push_back(std::move(record));
+	m_totalBytes += stRecord.totalBytesIntercepted;
+	m_records.push_back(std::move(stRecord));
 
-    Utils::ODS("[hooked 0x%08X: %zu байт] %s", src_addr, record.totalBytesIntercepted, method_name.c_str());
+	Utils::ODS("[hooked 0x%08X: %zu байт] %s", nAddress, stRecord.totalBytesIntercepted, strName.c_str());
 }
 
-void HookTracker::InstallHook(
-    const std::vector<HookTarget>& targets,
-    uintptr_t default_method,
-    const std::string& method_name,
-    const std::vector<HijackedFunction>& hijacked_funcs)
+void HookTracker::InstallHook(const std::vector<HookTarget>& vecTargets, uintptr_t nDefaultMethodAddress,
+	const std::string& strName, const std::vector<HijackedFunction>& vecFunctions, NopMode eNopMode)
 {
-    if (targets.empty()) return;
+	if (vecTargets.empty()) {
+		return;
+	}
 
-    std::vector<SavedNop> groupSavedNops;
-    size_t hijacked_bytes_total = 0;
+	for (const auto& stTarget : vecTargets) {
+		const uintptr_t nMethodAddress = stTarget.custom_method ? stTarget.custom_method : nDefaultMethodAddress;
+		ValidateHookTarget(stTarget.address, nMethodAddress, stTarget.type);
+	}
+	ValidateNopRanges(vecFunctions, eNopMode);
 
-    // --- 1. Обработка и логирование NOP-регионов (единожды на всю группу хуков) ---
-    for (const auto& func : hijacked_funcs)
-    {
-        if (func.size == 0) continue;
+	std::vector<SavedNop> vecSavedNops;
+	size_t nHijackedBytes = 0;
 
-        hijacked_bytes_total += func.size;
+	// --- 1. Обработка и логирование NOP-регионов (единожды на всю группу хуков) ---
+	for (const auto& stFunction : vecFunctions) {
+		nHijackedBytes += stFunction.size;
 
-        Utils::ODS("  %s- [NOP] %s @ 0x%08X-0x%08X (%zu bytes)",
-            &func == &hijacked_funcs.back() ? "\\_" : "|-",
-            func.name.c_str(),
-            func.start_address,
-            func.end_address,
-            func.size);
+		Utils::ODS("  %s- [NOP] %s @ 0x%08X-0x%08X (%zu bytes)",
+			&stFunction == &vecFunctions.back() ? "\\_" : "|-",
+			stFunction.name.c_str(),
+			stFunction.start_address,
+			stFunction.end_address,
+			stFunction.size);
 
-        SavedNop savedNop;
-        savedNop.address = func.start_address;
-        savedNop.originalBytes.resize(func.size);
+		SavedNop stSavedNop;
+		stSavedNop.address = stFunction.start_address;
+		stSavedNop.name = stFunction.name;
+		stSavedNop.originalBytes.resize(stFunction.size);
 
-        // Сохраняем оригинальные байты и забиваем область NOP-ами
-        MemoryEx::ReadMemoryBYTES(func.start_address, savedNop.originalBytes.data(), func.size);
-        MemoryEx::NOPMemory(func.start_address, func.size);
+		// Сохраняем исходные байты перед заполнением диапазона.
+		MemoryEx::ReadMemoryBYTES(stFunction.start_address, stSavedNop.originalBytes.data(), stFunction.size);
+		WriteNopRange(stFunction, eNopMode);
 
-        groupSavedNops.push_back(std::move(savedNop));
+		vecSavedNops.push_back(std::move(stSavedNop));
 
-        // Вычисляем графические символы ветвей для вывода дерева вызовов
-        bool isLastFunc = (&func == &hijacked_funcs.back());
-        std::string branchSymbol = isLastFunc ? " " : "|";
+		// Вычисляем графические символы ветвей для вывода дерева вызовов
+		bool bLastFunction = (&stFunction == &vecFunctions.back());
+		std::string strBranch = bLastFunction ? " " : "|";
 
-        // Определяем список адресов вызова (callers)
-        std::vector<uintptr_t> callers_to_show = func.callers;
-        if (callers_to_show.empty()) {
-            for (const auto& t : targets) callers_to_show.push_back(t.address);
-        }
+		// Определяем список адресов вызова (callers)
+		std::vector<uintptr_t> vecCallerAddresses = stFunction.callers;
+		if (vecCallerAddresses.empty()) {
+			for (const auto& stCaller : vecTargets) {
+				vecCallerAddresses.push_back(stCaller.address);
+			}
+		}
 
-        if (!callers_to_show.empty()) {
-            // Выводим отформатированное дерево вызовов (по 4 имени на строку)
-            std::string formattedCallers = join_resolved_multiline(callers_to_show, branchSymbol, 4);
-            Utils::ODS("  %s      (Called from: %s)", branchSymbol.c_str(), formattedCallers.c_str());
-        }
-    }
+		if (!vecCallerAddresses.empty()) {
+			// Выводим отформатированное дерево вызовов (по 4 имени на строку)
+			std::string strCallers = join_resolved_multiline(vecCallerAddresses, strBranch, 4);
+			Utils::ODS("  %s      (Called from: %s)", strBranch.c_str(), strCallers.c_str());
+		}
+	}
 
-    // --- 2. Циклическая установка хуков по списку целей ---
-    bool isFirstRecord = true;
+	// --- 2. Циклическая установка хуков по списку целей ---
+	bool bFirstRecord = true;
 
-    for (const auto& target : targets)
-    {
-        HookRecord record;
-        record.address = target.address;
-        record.type = target.type;
-        record.name = method_name;
+	for (const auto& stTarget : vecTargets) {
+		HookRecord stRecord;
+		stRecord.address = stTarget.address;
+		stRecord.type = stTarget.type;
+		stRecord.name = strName;
 
-        // Определяем адрес метода-замены (кастомный для цели или глобальный по умолчанию)
-        uintptr_t method_to_use = (target.custom_method != 0) ? target.custom_method : default_method;
-        size_t hookSize = (target.type == HookType::VTable) ? 4 : 5;
+		// Определяем адрес метода-замены (кастомный для цели или глобальный по умолчанию)
+		uintptr_t nMethodAddress = (stTarget.custom_method != 0) ? stTarget.custom_method : nDefaultMethodAddress;
+		const size_t nHookSize = (stTarget.type == HookType::VTable) ? sizeof(uintptr_t) : 5;
 
-        // NOP-регионы привязываем только к ПЕРВОЙ записи группы, чтобы RestoreAll не восстанавливал их повторно
-        if (isFirstRecord) {
-            record.totalBytesIntercepted = hookSize + hijacked_bytes_total;
-            record.savedNops = std::move(groupSavedNops);
-            isFirstRecord = false;
-        }
-        else {
-            record.totalBytesIntercepted = hookSize;
-        }
+		// NOP-регионы привязываем только к ПЕРВОЙ записи группы, чтобы RestoreAll не восстанавливал их повторно
+		if (bFirstRecord) {
+			stRecord.totalBytesIntercepted = nHookSize + nHijackedBytes;
+			stRecord.savedNops = std::move(vecSavedNops);
+			bFirstRecord = false;
+		}
+		else {
+			stRecord.totalBytesIntercepted = nHookSize;
+		}
 
-        // Читаем оригинальные байты кода перед изменением
-        record.originalHookBytes.resize(hookSize);
-        MemoryEx::ReadMemoryBYTES(target.address, record.originalHookBytes.data(), hookSize);
+		// Читаем оригинальные байты кода перед изменением
+		stRecord.originalHookBytes.resize(nHookSize);
+		MemoryEx::ReadMemoryBYTES(stTarget.address, stRecord.originalHookBytes.data(), nHookSize);
 
-        // Записываем ассемблерную команду перехода в память процесса
-        switch (target.type)
-        {
-        case HookType::Call:
-            MemoryEx::WriteInstructionCall(target.address, method_to_use, 0);
-            break;
-        case HookType::Jmp:
-            MemoryEx::WriteInstructionJmp(target.address, method_to_use, 0);
-            break;
-        case HookType::VTable:
-            MemoryEx::WriteMemoryDWORD(target.address, static_cast<uint32_t>(method_to_use));
-            break;
-        }
+		// Записываем ассемблерную команду перехода в память процесса
+		switch (stTarget.type) {
+		case HookType::Call:
+			MemoryEx::WriteInstructionCall(stTarget.address, nMethodAddress, 0);
+			break;
+		case HookType::Jmp:
+			MemoryEx::WriteInstructionJmp(stTarget.address, nMethodAddress, 0);
+			break;
+		case HookType::VTable:
+			MemoryEx::WriteMemoryBYTES(stTarget.address, &nMethodAddress, sizeof(nMethodAddress));
+			break;
+		case HookType::Push:
+			MemoryEx::WriteInstructionPushImm32(stTarget.address, static_cast<uint32_t>(nMethodAddress));
+			break;
+		}
 
-        m_totalBytes += record.totalBytesIntercepted;
-        m_records.push_back(std::move(record));
-    }
+		m_totalBytes += stRecord.totalBytesIntercepted;
+		m_records.push_back(std::move(stRecord));
+	}
 }
 
 void HookTracker::RestoreAll()

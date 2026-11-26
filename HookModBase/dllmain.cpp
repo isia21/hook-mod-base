@@ -5,13 +5,26 @@
 #include "include/Utils.h"
 #include "example/TestAppHook.h" 
 
+#if defined(_WIN64)
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID)
+{
+	if (dwReason == DLL_PROCESS_ATTACH) {
+		DisableThreadLibraryCalls(hModule);
+	}
+	return TRUE;
+}
+
+#else
+
 // Объявляем глобальный менеджер хуков в том же пространстве имен, как в вашем реальном проекте
 HookManager g_HookManager;
 
 
 // Главный рабочий поток DLL
-void MainThread(HMODULE hModule)
+DWORD WINAPI MainThread(LPVOID pParameter)
 {
+	HMODULE hModule = static_cast<HMODULE>(pParameter);
 	// 0. Небольшая задержка для гарантии, что TargetApp полностью загрузится (можно убрать, если уверены в порядке загрузки)
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
@@ -54,7 +67,9 @@ BOOL APIENTRY DllMain(HMODULE hModule,
         DisableThreadLibraryCalls(hModule);
 
         // Создаем отдельный поток, чтобы не подвешивать инициализацию TargetApp
-        CreateThread(nullptr, 0, (LPTHREAD_START_ROUTINE)MainThread, hModule, 0, nullptr);
+        if (HANDLE hThread = CreateThread(nullptr, 0, MainThread, hModule, 0, nullptr)) {
+            CloseHandle(hThread);
+        }
         break;
 
     case DLL_THREAD_ATTACH:
@@ -64,3 +79,5 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     }
     return TRUE;
 }
+
+#endif

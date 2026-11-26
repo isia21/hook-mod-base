@@ -39,6 +39,9 @@ namespace MemoryEx
     // ЗАПИСЬ ИНСТРУКЦИЙ (INSTRUCTION PATCHING)
     // =================================================================================
 
+	/// <summary>Считает смещение от конца пятибайтовой инструкции. На x64 проверяет диапазон rel32.</summary>
+	bool TryGetRel32(uintptr_t nAddress, uintptr_t nTargetAddress, uint32_t& dwDisplacement);
+
     /// <summary>Записывает базовую ассемблерную инструкцию перехода по относительному смещению.</summary>
     void WriteInstruction(uintptr_t address, uintptr_t destination, uint8_t opcode);
 
@@ -50,6 +53,11 @@ namespace MemoryEx
 
     /// <summary>Записывает инструкцию относительного вызова CALL (0xE8) по адресу.</summary>
     void WriteInstructionCall(uintptr_t address, uintptr_t destination, uintptr_t nopEnd = 0);
+
+	/// <summary>Записывает пятибайтовую инструкцию PUSH imm32.</summary>
+	/// <param name="nAddress">Адрес инструкции.</param>
+	/// <param name="dwValue">32-битный операнд.</param>
+	void WriteInstructionPushImm32(uintptr_t nAddress, uint32_t dwValue);
 
     /// <summary>Записывает инструкцию относительного перехода JMP (0xE9) по адресу.</summary>
     void WriteInstructionJmp(uintptr_t address, uintptr_t destination, uintptr_t nopEnd = 0);

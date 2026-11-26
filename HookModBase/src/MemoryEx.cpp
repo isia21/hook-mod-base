@@ -3,12 +3,24 @@
 
 namespace MemoryEx
 {
-	void WriteMemoryBYTES(uintptr_t uAddress, const void* bytes, unsigned int len)
+	void WriteMemoryBYTES(uintptr_t nAddress, const void* pBytes, size_t nSize)
 	{
-		DWORD flOldProtect;
-		VirtualProtect((LPVOID)uAddress, len, PAGE_WRITECOPY, &flOldProtect);
-		memcpy((LPVOID)uAddress, bytes, len);
-		VirtualProtect((LPVOID)uAddress, len, flOldProtect, &flOldProtect);
+		if (nSize == 0) {
+			return;
+		}
+
+		auto* pAddress = reinterpret_cast<void*>(nAddress);
+		DWORD dwOldProtect = 0;
+		if (!VirtualProtect(pAddress, nSize, PAGE_EXECUTE_READWRITE, &dwOldProtect)) {
+			throw std::runtime_error("VirtualProtect failed before memory write");
+		}
+
+		memcpy(pAddress, pBytes, nSize);
+		const BOOL bRestored = VirtualProtect(pAddress, nSize, dwOldProtect, &dwOldProtect);
+		FlushInstructionCache(GetCurrentProcess(), pAddress, nSize);
+		if (!bRestored) {
+			throw std::runtime_error("VirtualProtect failed after memory write");
+		}
 	}
 
 	void WriteMemoryBYTES(uintptr_t addr, size_t len, ...)
@@ -62,28 +74,38 @@ namespace MemoryEx
 		WriteMemoryBYTES(uAddress, &value, sizeof(unsigned char));
 	}
 
-	void NOPMemory(uintptr_t uAddress, unsigned int len)
+	void NOPMemory(uintptr_t nAddress, size_t nSize)
 	{
-		unsigned int dword_count = (len / 4), byte_count = (len % 4);
-		unsigned char Byte = 0x90;
-		unsigned int Dword = 0x90666666;
+		static constexpr uint8_t NOP_BYTE = 0x90;
+		static constexpr uint32_t NOP_DWORD = 0x90666666;
+		size_t nDwordCount = nSize / sizeof(NOP_DWORD);
+		size_t nByteCount = nSize % sizeof(NOP_DWORD);
 
-		DWORD flOldProtect;
-		VirtualProtect((LPVOID)uAddress, len, PAGE_WRITECOPY, &flOldProtect);
-		while (dword_count != NULL)
-		{
-			memcpy((LPVOID)uAddress, &Dword, sizeof(unsigned int));
-			uAddress += sizeof(unsigned int);
-			dword_count--;
+		if (nSize == 0) {
+			return;
 		}
-		while (byte_count != NULL)
-		{
-			memcpy((LPVOID)uAddress, &Byte, sizeof(unsigned char));
-			uAddress += sizeof(unsigned char);
-			byte_count--;
+		auto* pchStart = reinterpret_cast<uint8_t*>(nAddress);
+		auto* pchCurrent = pchStart;
+		DWORD dwOldProtect = 0;
+		if (!VirtualProtect(pchStart, nSize, PAGE_EXECUTE_READWRITE, &dwOldProtect)) {
+			throw std::runtime_error("VirtualProtect failed before NOP fill");
+		}
+		while (nDwordCount != 0) {
+			memcpy(pchCurrent, &NOP_DWORD, sizeof(NOP_DWORD));
+			pchCurrent += sizeof(NOP_DWORD);
+			--nDwordCount;
+		}
+		while (nByteCount != 0) {
+			*pchCurrent = NOP_BYTE;
+			++pchCurrent;
+			--nByteCount;
 		}
 
-		VirtualProtect((LPVOID)uAddress, len, flOldProtect, &flOldProtect);
+		const BOOL bRestored = VirtualProtect(pchStart, nSize, dwOldProtect, &dwOldProtect);
+		FlushInstructionCache(GetCurrentProcess(), pchStart, nSize);
+		if (!bRestored) {
+			throw std::runtime_error("VirtualProtect failed after NOP fill");
+		}
 	}
 
 	void NULLMemory(uintptr_t uAddress, unsigned int len)
@@ -113,43 +135,61 @@ namespace MemoryEx
 		}
 	}
 
-	void WriteInstruction(uintptr_t uAddress, uintptr_t uDestination, unsigned char uFirstByte)
+	bool TryGetRel32(uintptr_t nAddress, uintptr_t nTargetAddress, uint32_t& dwDisplacement)
 	{
-		unsigned char ExecLine[5];
-		ExecLine[0] = uFirstByte;
-		*((int*)(ExecLine + 1)) = (((int)uDestination) - (((int)uAddress) + 5));
-		WriteMemoryBYTES(uAddress, ExecLine, 5);
+		constexpr size_t REL32_INSTRUCTION_SIZE = 5;
+		if (nAddress > UINTPTR_MAX - REL32_INSTRUCTION_SIZE) {
+			return false;
+		}
+
+		const uintptr_t nNextAddress = nAddress + REL32_INSTRUCTION_SIZE;
+		if constexpr (sizeof(uintptr_t) > sizeof(uint32_t)) {
+			if (nTargetAddress >= nNextAddress) {
+				if (nTargetAddress - nNextAddress > INT32_MAX) {
+					return false;
+				}
+			}
+			else if (nNextAddress - nTargetAddress > static_cast<uintptr_t>(INT32_MAX) + 1) {
+				return false;
+			}
+		}
+		dwDisplacement = static_cast<uint32_t>(nTargetAddress - nNextAddress);
+		return true;
+	}
+
+	void WriteInstruction(uintptr_t nAddress, uintptr_t nTargetAddress, uint8_t byOpcode)
+	{
+		uint32_t dwDisplacement = 0;
+		if (!TryGetRel32(nAddress, nTargetAddress, dwDisplacement)) {
+			throw std::invalid_argument("Target is outside rel32 reach");
+		}
+		uint8_t achInstruction[1 + sizeof(dwDisplacement)] = { byOpcode };
+		memcpy(achInstruction + 1, &dwDisplacement, sizeof(dwDisplacement));
+		WriteMemoryBYTES(nAddress, achInstruction, sizeof(achInstruction));
 	}
 
 	void WriteInstruction(uintptr_t Address, uintptr_t NewAddress, size_t NopZone, uint8_t Instruction)
 	{
-		DWORD OLDPROTECT;
-		CHAR* MyAddress = (CHAR*)Address;
-		INT32 JAddress = NewAddress - (Address + 5);
-
-		HANDLE Server = OpenProcess(PROCESS_ALL_ACCESS | PROCESS_VM_READ | PROCESS_VM_WRITE, false, GetCurrentProcessId());
-
-		if (Server)
-		{
-			// Unlocking the current address space in order to create the new jump.
-			VirtualProtect((VOID*)Address, 5 + NopZone, PAGE_WRITECOPY, &OLDPROTECT);
-
-			memcpy((LPVOID)MyAddress, (CHAR*)&Instruction, 1);
-			memcpy((LPVOID)(MyAddress + 1), (CHAR*)&JAddress, 4);
-			// COPYING THE ADDRESS TO THE ADDRESS SPACE.
-			NOPMemory((INT32)MyAddress + 5, (INT32)MyAddress + 5 + NopZone);
-			VirtualProtect((VOID*)Address, 5 + NopZone, OLDPROTECT, &OLDPROTECT);
+		if (Address > UINTPTR_MAX - 5 || NopZone > UINTPTR_MAX - (Address + 5)) {
+			throw std::invalid_argument("Instruction range overflows address space");
 		}
-
-		CloseHandle(Server);
+		WriteInstruction(Address, NewAddress, Instruction);
+		if (NopZone != 0) {
+			NOPMemory(Address + 5, NopZone);
+		}
 	}
 
 	void WriteInstructionCallJmpEax(uintptr_t uAddress, uintptr_t uDestination, uintptr_t uNopEnd)
 	{
 		unsigned char ExecLine[7];
 		ExecLine[0] = 0xE8;
-		*((int*)(ExecLine + 1)) = (((int)uDestination) - (((int)uAddress) + 5));
-		*((unsigned short*)(ExecLine + 5)) = 0xE0FF;
+		uint32_t dwDisplacement = 0;
+		if (!TryGetRel32(uAddress, uDestination, dwDisplacement)) {
+			throw std::invalid_argument("Target is outside rel32 reach");
+		}
+		memcpy(ExecLine + 1, &dwDisplacement, sizeof(dwDisplacement));
+		ExecLine[5] = 0xFF;
+		ExecLine[6] = 0xE0;
 		WriteMemoryBYTES(uAddress, ExecLine, 7);
 		if (uNopEnd && uNopEnd > (uAddress + 7))
 			NOPMemory((uAddress + 7), (uNopEnd - (uAddress + 7)));
@@ -158,12 +198,16 @@ namespace MemoryEx
 	//(mnemonic:'CALL';opcode1:eo_cd;paramtype1:par_rel32;bytes:1;bt1:$e8),
 	void WriteInstructionCall(uintptr_t uAddress, uintptr_t uDestination, uintptr_t uNopEnd)
 	{
-		unsigned char ExecLine[5];
-		ExecLine[0] = 0xE8;
-		*((int*)(ExecLine + 1)) = (((int)uDestination) - (((int)uAddress) + 5));
-		WriteMemoryBYTES(uAddress, ExecLine, 5);
+		WriteInstruction(uAddress, uDestination, 0xE8);
 		if (uNopEnd && uNopEnd > (uAddress + 5))
 			NOPMemory((uAddress + 5), (uNopEnd - (uAddress + 5)));
+	}
+
+	void WriteInstructionPushImm32(uintptr_t nAddress, uint32_t dwValue)
+	{
+		uint8_t achInstruction[1 + sizeof(dwValue)] = { 0x68 };
+		memcpy(achInstruction + 1, &dwValue, sizeof(dwValue));
+		WriteMemoryBYTES(nAddress, achInstruction, sizeof(achInstruction));
 	}
 
 	//(mnemonic:'MOV';opcode1:eo_id;paramtype1:par_eax;paramtype2:par_moffs32;bytes:1;bt1:$a1),
@@ -279,15 +323,15 @@ namespace MemoryEx
 
 	uintptr_t ReadRIPPointer(uintptr_t address, int instructionSize, int addrPosition)
 	{
-		uintptr_t RIPPointer;
 		uintptr_t result;
 		uint8_t instruction;
 
 		ReadMemoryBYTE(address, &instruction);
 		if (instruction == 0xE9)
 		{
-			ReadMemoryDWORD(address + addrPosition, &RIPPointer);
-			result = RIPPointer + address + instructionSize;
+			int32_t nDisplacement = 0;
+			ReadMemoryBYTES(address + addrPosition, &nDisplacement, sizeof(nDisplacement));
+			result = address + instructionSize + nDisplacement;
 		}
 		else
 		{
@@ -312,10 +356,7 @@ namespace MemoryEx
 
 	void WriteInstructionJmp(uintptr_t uAddress, uintptr_t uDestination, uintptr_t uNopEnd)
 	{
-		unsigned char ExecLine[5];
-		ExecLine[0] = 0xE9;
-		*reinterpret_cast<int*>(ExecLine + 1) = (static_cast<int>(uDestination) - (static_cast<int>(uAddress) + 5));
-		WriteMemoryBYTES(uAddress, ExecLine, 5);
+		WriteInstruction(uAddress, uDestination, 0xE9);
 		if (uNopEnd && uNopEnd > (uAddress + 5))
 			NOPMemory((uAddress + 5), (uNopEnd - (uAddress + 5)));
 	}
@@ -346,10 +387,14 @@ namespace MemoryEx
 	}
 	void* VtableHook(uintptr_t addres, void* hook, size_t lMethodIndex) {
 		uintptr_t vtable = addres;
-		uintptr_t entry = vtable + sizeof(int) * (lMethodIndex - 1);
-		uintptr_t original = *reinterpret_cast<uintptr_t*>(entry);
-
-		*reinterpret_cast<uintptr_t*>(entry) = reinterpret_cast<uintptr_t>(hook);
+		if (lMethodIndex == 0 || lMethodIndex - 1 > (UINTPTR_MAX - vtable) / sizeof(uintptr_t)) {
+			throw std::invalid_argument("Invalid VTable slot index");
+		}
+		const uintptr_t nEntryAddress = vtable + sizeof(uintptr_t) * (lMethodIndex - 1);
+		uintptr_t original = 0;
+		ReadMemoryBYTES(nEntryAddress, &original, sizeof(original));
+		const uintptr_t nHookAddress = reinterpret_cast<uintptr_t>(hook);
+		WriteMemoryBYTES(nEntryAddress, &nHookAddress, sizeof(nHookAddress));
 
 		return reinterpret_cast<void*>(original);
 	}

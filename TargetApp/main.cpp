@@ -3,6 +3,26 @@
 #include <thread>
 #include <chrono>
 
+#if defined(_WIN64)
+
+int main()
+{
+	using TRunDemo = BOOL (WINAPI*)();
+	HMODULE hModule = LoadLibraryW(L"HookModBase.dll");
+	if (!hModule) {
+		std::cerr << "[TargetApp] DLL load failed: " << GetLastError() << '\n';
+		return 1;
+	}
+
+	auto pfnRunDemo = reinterpret_cast<TRunDemo>(GetProcAddress(hModule, "RunHookModBaseDemo"));
+	const bool bPassed = pfnRunDemo && pfnRunDemo();
+	FreeLibrary(hModule);
+	std::cout << (bPassed ? "[TargetApp] x64 demo passed" : "[TargetApp] x64 demo failed") << '\n';
+	return bPassed ? 0 : 1;
+}
+
+#else
+
 // 1. Интерфейс для тестирования VTable-хука
 class IRenderSystem {
 public:
@@ -80,3 +100,5 @@ int main() {
     if (hDll) FreeLibrary(hDll);
     return 0;
 }
+
+#endif

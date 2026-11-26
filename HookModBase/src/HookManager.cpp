@@ -19,6 +19,15 @@ namespace
 		size_t size;
 	};
 
+	struct stMapRange : HookTracker::MemoryRange
+	{
+		const char* pszGapKind = nullptr;
+		bool bShortGap = false;
+	};
+
+	static constexpr size_t DEFAULT_SHORT_GAP_LIMIT = 16;
+	static constexpr uint8_t ALIGNMENT_BYTE = 0xCC;
+
 	/// <summary>
 	/// Записывает 16-битное беззнаковое целое число (WORD) в файловый поток в формате Little-Endian.
 	/// Необходимо для корректной генерации заголовков бинарных форматов (например, BMP).
@@ -47,8 +56,9 @@ namespace
 	/// <summary>
 	/// Динамически парсит PE-заголовок текущего процесса и возвращает границы секции, содержащей исполняемый код (.text).
 	/// </summary>
+	/// <param name="vecExecutableSections">Границы отдельных исполняемых секций для анализа промежутков.</param>
 	/// <returns>Структура CodeSectionInfo с границами исполняемого кода.</returns>
-	static CodeSectionInfo GetExeCodeSectionInfo()
+	static CodeSectionInfo GetExeCodeSectionInfo(std::vector<CodeSectionInfo>& vecExecutableSections)
 	{
 		CodeSectionInfo info = {};
 		HMODULE hModule = GetModuleHandle(NULL);
@@ -66,11 +76,15 @@ namespace
 		PIMAGE_SECTION_HEADER pSection = IMAGE_FIRST_SECTION(pNtHeaders);
 		for (WORD i = 0; i < pNtHeaders->FileHeader.NumberOfSections; ++i, ++pSection)
 		{
-			if ((pSection->Characteristics & IMAGE_SCN_CNT_CODE) == 0)
-				continue;
-
 			uintptr_t sectionStart = reinterpret_cast<uintptr_t>(hModule) + pSection->VirtualAddress;
 			uintptr_t sectionEnd = sectionStart + pSection->Misc.VirtualSize;
+
+			if ((pSection->Characteristics & (IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE)) == 0) {
+				continue;
+			}
+			if ((pSection->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0 && sectionEnd > sectionStart) {
+				vecExecutableSections.push_back({ sectionStart, sectionEnd, sectionEnd - sectionStart });
+			}
 
 			if (info.start == 0 || sectionStart < info.start)
 				info.start = sectionStart;
@@ -196,6 +210,7 @@ namespace
 		case HookType::Call: return "call";
 		case HookType::Jmp: return "jmp";
 		case HookType::VTable: return "vtable";
+		case HookType::Push: return "push";
 		default: return "unknown";
 		}
 	}
@@ -265,7 +280,7 @@ namespace
 	/// <returns>True при успешной генерации, иначе False.</returns>
 	static bool WriteHookMemoryJson(
 		const std::string& path,
-		const std::vector<HookTracker::MemoryRange>& ranges,
+		const std::vector<stMapRange>& ranges,
 		const CodeSectionInfo& code,
 		int width,
 		int height,
@@ -298,7 +313,7 @@ namespace
 
 		for (size_t i = 0; i < ranges.size(); ++i)
 		{
-			const HookTracker::MemoryRange& range = ranges[i];
+			const stMapRange& range = ranges[i];
 			const uintptr_t endAddress = range.address + range.size;
 			const bool intersectsText = range.size > 0 && range.address < code.end && endAddress > code.start;
 
@@ -316,8 +331,11 @@ namespace
 
 			file << "    {\n";
 			file << "      \"name\": \"" << EscapeJsonString(range.name) << "\",\n";
-			file << "      \"kind\": \"" << (range.isNop ? "nop" : "hook") << "\",\n";
-			file << "      \"hook_type\": \"" << HookTypeToString(range.type) << "\",\n";
+			file << "      \"kind\": \"" << (range.pszGapKind ? range.pszGapKind : (range.isNop ? "nop" : "hook")) << "\",\n";
+			file << "      \"hook_type\": \"" << (range.pszGapKind ? "" : HookTypeToString(range.type)) << "\",\n";
+			if (range.pszGapKind) {
+				file << "      \"short_gap\": " << (range.bShortGap ? "true" : "false") << ",\n";
+			}
 			file << "      \"address\": \"" << HexAddress(range.address) << "\",\n";
 			file << "      \"end\": \"" << HexAddress(endAddress) << "\",\n";
 			file << "      \"size\": " << range.size << ",\n";
@@ -347,7 +365,7 @@ namespace
 	static bool WriteHookMemoryHtml(
 		const std::string& path,
 		const std::string& bmpFileName,
-		const std::vector<HookTracker::MemoryRange>& ranges,
+		const std::vector<stMapRange>& ranges,
 		const CodeSectionInfo& code,
 		int width,
 		int height,
@@ -378,7 +396,7 @@ namespace
 
 		for (size_t i = 0; i < ranges.size(); ++i)
 		{
-			const HookTracker::MemoryRange& range = ranges[i];
+			const stMapRange& range = ranges[i];
 			const uintptr_t endAddress = range.address + range.size;
 			const bool intersectsText = range.size > 0 && range.address < code.end && endAddress > code.start;
 
@@ -396,8 +414,11 @@ namespace
 
 			json << "    {\n";
 			json << "      \"name\": \"" << EscapeJsonString(range.name) << "\",\n";
-			json << "      \"kind\": \"" << (range.isNop ? "nop" : "hook") << "\",\n";
-			json << "      \"hook_type\": \"" << HookTypeToString(range.type) << "\",\n";
+			json << "      \"kind\": \"" << (range.pszGapKind ? range.pszGapKind : (range.isNop ? "nop" : "hook")) << "\",\n";
+			json << "      \"hook_type\": \"" << (range.pszGapKind ? "" : HookTypeToString(range.type)) << "\",\n";
+			if (range.pszGapKind) {
+				json << "      \"short_gap\": " << (range.bShortGap ? "true" : "false") << ",\n";
+			}
 			json << "      \"address\": \"" << HexAddress(range.address) << "\",\n";
 			json << "      \"end\": \"" << HexAddress(endAddress) << "\",\n";
 			json << "      \"size\": " << range.size << ",\n";
@@ -441,6 +462,8 @@ button, input { font:inherit; }
 .legend .l-hook::before { background:#f09a2a; }
 .legend .l-nop::before { background:#3ad975; }
 .legend .l-vtable::before { background:#00ffff; }
+.legend .l-alignment::before { background:#bf91fa; }
+.legend .l-short-gap::before { background:#f5e47b; }
 .list { display:flex; flex-direction:column; gap:8px; }
 .item { padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); cursor:pointer; }
 .item:hover, .item.active { border-color:#5b6a82; background:var(--panel2); }
@@ -480,6 +503,8 @@ button, input { font:inherit; }
 	  <span class="l-hook">hook entry</span>
 	  <span class="l-nop">nop owned</span>
 	  <span class="l-vtable">vtable</span>
+	  <span class="l-alignment">possible alignment (0xCC)</span>
+	  <span class="l-short-gap">short gap</span>
 	</div>
 	<div class="list" id="list"></div>
   </aside>
@@ -554,7 +579,13 @@ async function loadData() {
 function decorateData() {
   data.ranges.forEach((range, index) => {
 	range.index = index;
-	if (range.hook_type === 'vtable') {
+	if (range.kind === 'alignment') {
+	  range.color = 'rgba(191,145,250,0.38)';
+	  range.stroke = '#bf91fa';
+	} else if (range.kind === 'short_gap') {
+	  range.color = 'rgba(245,228,123,0.38)';
+	  range.stroke = '#f5e47b';
+	} else if (range.hook_type === 'vtable') {
 	  range.color = 'rgba(0,255,255,0.40)';
 	  range.stroke = '#00ffff';
 	} else if (range.kind === 'nop') {
@@ -629,7 +660,8 @@ function renderList() {
   filtered.slice(0, 500).forEach(range => {
 	const el = document.createElement('div');
 	el.className = 'item' + (range.index === activeIndex ? ' active' : '');
-	el.innerHTML = `<div class="name">${range.name || '(unnamed)'}</div><div class="sub">${range.kind} | ${range.hook_type} | ${range.address} | ${range.size} bytes</div>`;
+	const type = range.hook_type ? `${range.kind} | ${range.hook_type}` : range.kind;
+	el.innerHTML = `<div class="name">${range.name || '(unnamed)'}</div><div class="sub">${type} | ${range.address} | ${range.size} bytes</div>`;
 	el.onclick = () => {
 	  activeIndex = range.index;
 	  updateDetails([range]);
@@ -656,7 +688,7 @@ function updateDetails(ranges) {
   const primary = ranges[0];
   let html = `<div class="title">${primary.name || '(unnamed)'}</div>` +
 	`<div class="row">kind: ${primary.kind}</div>` +
-	`<div class="row">hook_type: ${primary.hook_type}</div>` +
+	(primary.hook_type ? `<div class="row">hook_type: ${primary.hook_type}</div>` : '') +
 	`<div class="row">address: ${primary.address} .. ${primary.end}</div>` +
 	`<div class="row">size: ${primary.size} bytes</div>` +
 	`<div class="row">pixel: ${primary.pixel_start} .. ${primary.pixel_end}</div>`;
@@ -870,8 +902,6 @@ init();
 		fs << "    if (h_type == 2) { // HookType::VTable\n";
 		fs << "        color = 0xFFFF00; // Cyan\n";
 		fs << "        prefix = \"[VTABLE_DLL] \";\n";
-		fs << "        //patch_byte(addr + 0, 0); patch_byte(addr + 1, 0);\n";
-		fs << "        //patch_byte(addr + 2, 0); patch_byte(addr + 3, 0);\n";
 		fs << "    } else {\n";
 		fs << "        color = is_nop ? 0x00FF00 : 0xFF00FF; // Lime / Magenta\n";
 		fs << "        prefix = is_nop ? \"[NOP_CAVE] \" : \"[REVERSE] \";\n";
@@ -980,10 +1010,91 @@ init();
 	/// </summary>
 	/// <param name="ranges">Полный список всех регионов памяти, модифицированных менеджером хуков.</param>
 	/// <param name="totalBytes">Суммарное количество измененных байт для статистики.</param>
-	static void WriteHookMemoryMap(const std::vector<HookTracker::MemoryRange>& ranges, size_t totalBytes)
+	/// <summary>Проверяет, что весь доступный для чтения промежуток заполнен байтами 0xCC.</summary>
+	static bool IsAlignmentGap(uintptr_t nStartAddress, uintptr_t nEndAddress)
+	{
+		uint8_t achBytes[256];
+		while (nStartAddress < nEndAddress) {
+			const size_t nBytes = (std::min)(sizeof(achBytes), nEndAddress - nStartAddress);
+			SIZE_T nBytesRead = 0;
+			if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void*>(nStartAddress),
+					achBytes, nBytes, &nBytesRead) || nBytesRead != nBytes) {
+				return false;
+			}
+			for (size_t i = 0; i < nBytesRead; ++i) {
+				if (achBytes[i] != ALIGNMENT_BYTE) {
+					return false;
+				}
+			}
+			nStartAddress += nBytesRead;
+		}
+		return true;
+	}
+
+	/// <summary>
+	/// Добавляет пометки между соседними NOP-диапазонами внутри исполняемой секции.
+	/// Пересечения объединяются. Патчи и статистика изменённых байтов используют исходные диапазоны.
+	/// </summary>
+	static void AppendNopGaps(const std::vector<HookTracker::MemoryRange>& vecRanges,
+		const std::vector<CodeSectionInfo>& vecSections, size_t nShortGapLimit,
+		std::vector<stMapRange>& vecMapRanges)
+	{
+		std::vector<const HookTracker::MemoryRange*> vecSortedRanges;
+		for (const auto& stRange : vecRanges) {
+			if (stRange.size != 0 && stRange.size <= UINTPTR_MAX - stRange.address) {
+				vecSortedRanges.push_back(&stRange);
+			}
+		}
+		std::sort(vecSortedRanges.begin(), vecSortedRanges.end(), [](const auto* pLeft, const auto* pRight) {
+			if (pLeft->address == pRight->address) {
+				return pLeft->isNop && !pRight->isNop;
+			}
+			return pLeft->address < pRight->address;
+		});
+
+		uintptr_t nPreviousEndAddress = 0;
+		bool bPreviousNop = false;
+		for (const auto* pRange : vecSortedRanges) {
+			const uintptr_t nNextStartAddress = pRange->address;
+			const uintptr_t nNextEndAddress = nNextStartAddress + pRange->size;
+			if (bPreviousNop && pRange->isNop && nNextStartAddress > nPreviousEndAddress) {
+				for (const auto& stSection : vecSections) {
+					if (nPreviousEndAddress <= stSection.start || nNextStartAddress >= stSection.end) {
+						continue;
+					}
+
+					const size_t nSize = nNextStartAddress - nPreviousEndAddress;
+					const bool bShortGap = nSize < nShortGapLimit;
+					const bool bAlignment = IsAlignmentGap(nPreviousEndAddress, nNextStartAddress);
+					if (bAlignment || bShortGap) {
+						const char* pszName = "Short gap";
+						if (bAlignment) {
+							pszName = bShortGap ?
+								"Possible alignment (0xCC), short gap" : "Possible alignment (0xCC)";
+						}
+						vecMapRanges.push_back({ { nPreviousEndAddress, nSize, HookType::Jmp, false, pszName },
+							bAlignment ? "alignment" : "short_gap", bShortGap });
+					}
+					break;
+				}
+			}
+			if (nNextEndAddress > nPreviousEndAddress) {
+				nPreviousEndAddress = nNextEndAddress;
+				bPreviousNop = pRange->isNop;
+			}
+			else if (nNextEndAddress == nPreviousEndAddress && pRange->isNop) {
+				bPreviousNop = true;
+			}
+		}
+	}
+
+	/// <summary>Генерирует карту памяти и скрипты синхронизации IDA.</summary>
+	static void WriteHookMemoryMap(const std::vector<HookTracker::MemoryRange>& ranges,
+		size_t totalBytes, size_t nShortGapLimit)
 	{
 		// 1. Получаем информацию о границах исполняемого кода и данных
-		CodeSectionInfo textSec = GetExeCodeSectionInfo(); // Секция .text
+		std::vector<CodeSectionInfo> vecExecutableSections;
+		CodeSectionInfo textSec = GetExeCodeSectionInfo(vecExecutableSections);
 		CodeSectionInfo rdataSec = GetSectionInfo(".rdata"); // Секция .rdata (нужно реализовать поиск секции)
 
 		if (textSec.size == 0)
@@ -1049,6 +1160,13 @@ init();
 			bytesOwned += (clippedEnd - clippedStart);
 		}
 
+		std::vector<stMapRange> vecMapRanges;
+		vecMapRanges.reserve(ranges.size());
+		for (const auto& stRange : ranges) {
+			vecMapRanges.push_back({ stRange });
+		}
+		AppendNopGaps(ranges, vecExecutableSections, nShortGapLimit, vecMapRanges);
+
 		// 3. Формирование путей к файлам отчетов
 		const std::string baseDir = GetExeDirectory() + "\\";
 		const std::string bmpPath = baseDir + "hook_memory_map.bmp";
@@ -1066,14 +1184,15 @@ init();
 			double ownedPercent = (static_cast<double>(bytesOwned) / static_cast<double>(fullMapSize)) * 100.0;
 
 			Utils::ODS("[HookManager] --- Memory Map Sync Successful ---");
-			Utils::ODS("[HookManager] Map range: 0x%08X - 0x%08X (%zu bytes)", mapStart, mapEnd, fullMapSize);
+			Utils::ODS("[HookManager] Map range: %s - %s (%zu bytes)",
+				HexAddress(mapStart).c_str(), HexAddress(mapEnd).c_str(), fullMapSize);
 			Utils::ODS("[HookManager] Total owned: %zu bytes (%.3f%% of mapped area)", bytesOwned, ownedPercent);
 
 			// JSON для внешних парсеров
-			WriteHookMemoryJson(jsonPath, ranges, mapSec, width, height, totalBytes);
+			WriteHookMemoryJson(jsonPath, vecMapRanges, mapSec, width, height, totalBytes);
 
 			// Интерактивный HTML с тултипами (именами функций при наведении на пиксель)
-			WriteHookMemoryHtml(htmlPath, "hook_memory_map.bmp", ranges, mapSec, width, height, totalBytes);
+			WriteHookMemoryHtml(htmlPath, "hook_memory_map.bmp", vecMapRanges, mapSec, width, height, totalBytes);
 
 			// Скрипты синхронизации для IDA Pro
 			if (WriteIdaSyncScript(idaPath, ranges))
@@ -1140,6 +1259,11 @@ void HookManager::RegisterModule(std::unique_ptr<IHookModule> module)
 
 void HookManager::InitAll()
 {
+	InitAll(DEFAULT_SHORT_GAP_LIMIT);
+}
+
+void HookManager::InitAll(size_t nShortGapLimit)
+{
 	// 1. Проходим по всем модулям и инициализируем их
 	for (const auto& mod : m_modules)
 	{
@@ -1179,7 +1303,7 @@ void HookManager::InitAll()
 
 	Utils::ODS("-----------------------------------------------------------------------");
 	Utils::ODS("[HookManager] Суммарно заменено байт в EXE: %zu = (%.3f%%)", total_replaced_bytes, percentage);
-	WriteHookMemoryMap(memoryRanges, total_replaced_bytes);
+	WriteHookMemoryMap(memoryRanges, total_replaced_bytes, nShortGapLimit);
 	Utils::ODS("=======================================================================\n");
 }
 
